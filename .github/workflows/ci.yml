@@ -40,6 +40,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [lua, tools]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub release
     steps:
       - uses: actions/checkout@v7
         with:
