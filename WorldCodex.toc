@@ -4,6 +4,7 @@
 ## Notes-deDE: Gegenstandsdatenbank im Spiel: wo jeder Gegenstand droppt, wie oft, wie sicher und was er wert ist. /worldcodex help
 ## Author: renfordt
 ## Version: 0.1.0
+## X-Curse-Project-ID: 1831227
 ## SavedVariables: WorldCodexDB, ItemsDB, MobLootDB
 ## OptionalDeps: TomTom, LibStub, LibDeflate, ChatThrottleLib, LibDataBroker-1.1, LibDBIcon-1.0
 
