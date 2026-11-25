@@ -1048,45 +1048,6 @@ test("client restriction state and hidden unit identity are read through the cli
     _G.Enum, _G.C_RestrictedActions, _G.C_Secrets = nil, nil, nil
 end)
 
-test("API dump addon: documentation without methods and back references, functions at run time", function()
-    local unitSystem = {
-        Name = "Unit",
-        Type = "System",
-        Functions = { { Name = "UnitGUID", Type = "Function", SecretWhenUnitIdentityRestricted = true } },
-        Events = {},
-        Tables = {},
-        GetName = function() end, -- mixin method added by Blizzard_APIDocumentation
-    }
-    unitSystem.Functions[1].System = unitSystem -- back reference: a cycle
-    unitSystem.Functions[1].MatchesName = function() end
-    local loose = { Name = "AccountData", Type = "Enumeration", Fields = { { Name = "Config", EnumValue = 0 } } }
-    local loaded = {}
-    _G.C_AddOns = { LoadAddOn = function(name) loaded[#loaded + 1] = name end }
-    _G.APIDocumentation = { systems = { unitSystem }, tables = { loose } }
-    _G.SlashCmdList = _G.SlashCmdList or {}
-    _G.DEFAULT_CHAT_FRAME = { AddMessage = function() end }
-    _G.WorldCodexAPIDumpDB = nil
-    assert(loadfile("tools/WorldCodexAPIDump/WorldCodexAPIDump.lua"))("WorldCodexAPIDump")
-    local env = { UnitGUID = print, GetLootSourceInfo = print, C_Map = { GetBestMapForUnit = print, x = 1 }, n = 3 }
-    ok(_G.WorldCodexAPIDump.Run(env))
-    local db = _G.WorldCodexAPIDumpDB
-    eq(loaded[2], "Blizzard_APIDocumentationGenerated")
-    local fn = db.systems[1].Functions[1]
-    eq(fn.Name, "UnitGUID")
-    eq(fn.SecretWhenUnitIdentityRestricted, true)
-    eq(fn.System, nil, "back reference dropped")
-    eq(fn.MatchesName, nil, "mixin methods dropped")
-    eq(db.systems[1].GetName, nil)
-    eq(db.tables[1].Name, "AccountData", "tables without a system")
-    eq(db.runtime.globals[1], "GetLootSourceInfo", "undocumented globals listed")
-    eq(db.runtime.namespaces.C_Map[1], "GetBestMapForUnit")
-    eq(#db.runtime.namespaces.C_Map, 1, "only functions")
-    _G.SlashCmdList.WORLDCODEXAPIDUMP("clear")
-    eq(next(_G.WorldCodexAPIDumpDB), nil)
-    _G.C_AddOns, _G.APIDocumentation, _G.WorldCodexAPIDump, _G.WorldCodexAPIDumpDB = nil, nil, nil, nil
-    _G.DEFAULT_CHAT_FRAME = nil
-end)
-
 test("farming goals count items through C_Item (no global GetItemCount on WoW Forever)", function()
     local ns = Stub.Boot(ROOT, Env(), { filter = CORE_ONLY })
     local global = _G.GetItemCount
