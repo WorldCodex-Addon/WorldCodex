@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="WORLDCODEX_HOVER" header="WORLDCODEX" category="ADDONS">
+        WorldCodexAPI.OpenHovered()
+    </Binding>
+</Bindings>

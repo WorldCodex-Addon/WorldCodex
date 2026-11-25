@@ -1,0 +1,18 @@
+package-as: WorldCodex
+
+ignore:
+  - tests
+  - tools
+  - .github
+  - .luacheckrc
+  - .luarc.json
+  - stylua.toml
+  - .styluaignore
+  - .idea
+  - .claude
+  - README.md
+  - docs
+
+optional-dependencies:
+  - tomtom
+  - libdeflate

@@ -1,0 +1,50 @@
+## Interface: 16001
+## Title: WorldCodex
+## Notes: In-game item database: where every item drops, how often, how sure, and what it is worth. /worldcodex help
+## Notes-deDE: Gegenstandsdatenbank im Spiel: wo jeder Gegenstand droppt, wie oft, wie sicher und was er wert ist. /worldcodex help
+## Author: renfordt
+## Version: 0.1.0
+## SavedVariables: WorldCodexDB, ItemsDB, MobLootDB
+## OptionalDeps: TomTom, LibStub, LibDeflate, ChatThrottleLib, LibDataBroker-1.1, LibDBIcon-1.0
+
+Locales\enUS.lua
+Locales\deDE.lua
+Core.lua
+Stats.lua
+Codec.lua
+Store.lua
+Data\Community.lua
+Collector.lua
+Quests.lua
+Vendors.lua
+Npcs.lua
+Crafting.lua
+AH\History.lua
+AH\Scanner.lua
+AH\Modern.lua
+Nav.lua
+Lookup.lua
+Farm.lua
+KPI.lua
+Sync.lua
+Report.lua
+Export.lua
+UI\Widgets.lua
+UI\Charts.lua
+UI\Portraits.lua
+UI\Windows.lua
+UI\Tooltip.lua
+UI\Page.lua
+UI\Details.lua
+UI\PageItem.lua
+UI\PageSource.lua
+UI\PageExtra.lua
+UI\PageKPI.lua
+UI\Browser.lua
+UI\Arrow.lua
+UI\MapPins.lua
+UI\Tracker.lua
+UI\Options.lua
+UI\Minimap.lua
+UI\Welcome.lua
+Slash.lua

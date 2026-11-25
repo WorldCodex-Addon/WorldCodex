@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LuaJIT and luacheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit lua-check
+      - name: Lint
+        run: luacheck .
+      - name: LuaLS config in sync with .luacheckrc
+        run: luajit tools/luarc.lua --check
+      - name: Format check (StyLua)
+        run: |
+          curl -fsSLo stylua.zip https://github.com/JohnnyMorganz/StyLua/releases/download/v2.6.0/stylua-linux-x86_64.zip
+          unzip -q stylua.zip -d "$RUNNER_TEMP" && "$RUNNER_TEMP/stylua" --check .
+      - name: Syntax check (Lua 5.1 / LuaJIT)
+        run: for f in $(git ls-files '*.lua'); do luajit -bl "$f" > /dev/null; done
+      - name: Unit tests
+        run: luajit tests/run.lua
+
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Merge tool tests
+        run: python -m unittest discover -s tools -v
+
+  package:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [lua, tools]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: BigWigsMods/packager@v2
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}

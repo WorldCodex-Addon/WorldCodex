@@ -1,0 +1,8 @@
+.idea/
+*.swp
+.DS_Store
+.release/
+__pycache__/
+*.pyc
+dataset.json
+uploads/
