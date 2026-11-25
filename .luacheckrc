@@ -55,7 +55,7 @@ read_globals = {
     "LOOT_ITEM_PUSHED_SELF", "LOOT_ITEM_PUSHED_SELF_MULTIPLE",
     -- namespaces
     "C_AddOns", "C_AuctionHouse", "C_ChatInfo", "C_Container", "C_CurrencyInfo", "C_EncodingUtil", "C_Item", "C_Map", "C_Spell", "C_SuperTrack", "C_TradeSkillUI", "Enum",
-    "CreateVector2D", "UiMapPoint",
+    "CreateVector2D", "UiMapPoint", "BreakUpLargeNumbers",
     -- chat
     "RegisterAddonMessagePrefix", "SendAddonMessage",
     -- optional libraries / addons
