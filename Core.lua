@@ -104,7 +104,9 @@ local function Timed(kind, name, fn, ...)
     frameWork = frameWork + ms
     if ms > frameTopMs or ms >= SLOW_MS then
         local label = kind .. " " .. tostring(name) .. (where[fn] and (" (" .. where[fn] .. ")") or "")
-        if ms > frameTopMs then frameTopMs, frameTop = ms, label end
+        if ms > frameTopMs then
+            frameTopMs, frameTop = ms, label
+        end
         if ms >= SLOW_MS then Keep(ns.slow.calls, { t = ns.time(), what = label, ms = math.floor(ms) }) end
     end
     return ok

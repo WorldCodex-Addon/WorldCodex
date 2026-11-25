@@ -718,7 +718,9 @@ function C.CommitLoot()
     local inInstance, instanceType = false, nil
     if IsInInstance then
         local ok, a, b = pcall(IsInInstance)
-        if ok then inInstance, instanceType = a, b end
+        if ok then
+            inInstance, instanceType = a, b
+        end
     end
     logged.instance = inInstance and (instanceType or "yes") or nil
     -- where: the map, and whether the client gave a position (it does not in instances)

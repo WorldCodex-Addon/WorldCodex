@@ -134,7 +134,9 @@ local function FirstLogin()
     if not ns.db or ns.db.meta.welcomed then return end
     if ns.InCombat() then return ns.After(RETRY, FirstLogin) end
     ns.db.meta.welcomed = true
-    ns.Print(L["Welcome to WorldCodex! Type /wcx to open it, /wcx welcome for a short guide, /wcx help for all commands."])
+    ns.Print(
+        L["Welcome to WorldCodex! Type /wcx to open it, /wcx welcome for a short guide, /wcx help for all commands."]
+    )
     We.Show()
 end
 

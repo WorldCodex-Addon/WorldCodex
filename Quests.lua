@@ -321,7 +321,9 @@ end
 -- sent it). The result is never changed afterwards, so it can be kept as the state at that moment.
 function Q.Needed()
     local api = C_QuestLog
-    if not ready or not (api and api.GetNumQuestLogEntries and api.GetQuestIDForLogIndex and api.GetQuestObjectives) then
+    if
+        not ready or not (api and api.GetNumQuestLogEntries and api.GetQuestIDForLogIndex and api.GetQuestObjectives)
+    then
         return nil
     end
     if dirty or not needed then

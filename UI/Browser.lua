@@ -422,9 +422,7 @@ function R.Actions(id)
 end
 
 function R.Tabs(id)
-    if id == "farming" then
-        return { { id = "farming", label = L["Farming"], custom = "farming", solo = true } }
-    end
+    if id == "farming" then return { { id = "farming", label = L["Farming"], custom = "farming", solo = true } } end
     local colset = "list:" .. id
     if ns.FarmingOn() and COLUMNS[colset .. ":farm"] then colset = colset .. ":farm" end
     local keep = not state.reset[id]

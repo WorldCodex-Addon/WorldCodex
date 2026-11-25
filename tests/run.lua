@@ -2003,7 +2003,9 @@ local function ProfessionUI(opts)
     return fake
 end
 
-local function ClearProfessionUI() _G.C_TradeSkillUI, _G.Enum = nil, nil end
+local function ClearProfessionUI()
+    _G.C_TradeSkillUI, _G.Enum = nil, nil
+end
 
 test("profession recipes are read through C_TradeSkillUI with reagents and a reverse index", function()
     local fake = ProfessionUI()
