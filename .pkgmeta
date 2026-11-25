@@ -13,6 +13,11 @@ ignore:
   - README.md
   - docs
 
+# CurseForge slugs; keep in sync with ## OptionalDeps in WorldCodex.toc (same order)
 optional-dependencies:
   - tomtom
+  - libstub
   - libdeflate
+  - chatthrottlelib
+  - libdatabroker-1-1
+  - libdbicon-1-0
