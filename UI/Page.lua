@@ -378,7 +378,7 @@ function P.Analysis(r, opts)
             if k >= k90 and k - step < k90 then marks[i] = true end
         end
         a.curveLabel:SetText(string.format(L["Chance after N %s"], word))
-        a.curve:Set(bars, { max = 1, left = "1", right = tostring(24 * step) })
+        a.curve:Set(bars, { max = 1, left = "1", right = tostring(24 * step), marks = marks })
         a.curve:Show()
         a.curveText:SetText(string.format("50%%: %d · 90%%: %d · 99%%: %d %s", k50, k90, k99, word))
     else
