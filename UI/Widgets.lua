@@ -720,7 +720,8 @@ end
 -- Search field in the client's style (SearchBoxTemplate: magnifier, "Search" placeholder, clear
 -- button), else a plain input box. Its own scripts must be hooked, not replaced (W.OnEdit); onClear runs
 -- after the clear button emptied it.
-function W.SearchBox(parent, width, onClear)
+-- hint: grey text shown while the box is empty (the client's template only).
+function W.SearchBox(parent, width, onClear, hint)
     local eb
     if TemplateKnown("SearchBoxTemplate") then
         local ok, made = pcall(CreateFrame, "EditBox", nil, parent, "SearchBoxTemplate")
@@ -731,10 +732,102 @@ function W.SearchBox(parent, width, onClear)
         eb:SetSize(width or 160, 20)
         eb:SetAutoFocus(false)
         if IsObject(eb.clearButton) and onClear then eb.clearButton:HookScript("OnClick", onClear) end
+        if hint and IsObject(eb.Instructions) and eb.Instructions.SetText then eb.Instructions:SetText(hint) end
     else
         eb = W.Input(parent, width)
     end
     return eb
+end
+
+-- Choice button with a popup list (the client's own dropdown menus are not used: MenuUtil is not
+-- confirmed on WoW Forever). options = { {value, label} } or a function returning them, read when the
+-- list opens; the first entry is always `anyLabel` with the value "" (= no choice). onChange(value).
+-- :SetValue(v) / :GetValue(). The list scrolls with the mouse wheel.
+local DROPDOWN_ROWS, DROPDOWN_ROW_H = 14, 18
+function W.Dropdown(parent, width, options, anyLabel, onChange)
+    local dd = W.Button(parent, anyLabel, width)
+    dd.value = ""
+    dd.options = options
+    local popup, offset, list = nil, 0, {}
+
+    local function Options()
+        local out = { { "", anyLabel } }
+        local o = type(dd.options) == "function" and dd.options() or dd.options or {}
+        for _, e in ipairs(o) do
+            out[#out + 1] = e
+        end
+        return out
+    end
+
+    function dd:SetValue(v)
+        self.value = v == nil and "" or v
+        local label = anyLabel
+        for _, e in ipairs(Options()) do
+            if e[1] == self.value then label = e[2] end
+        end
+        self:SetText(tostring(label))
+    end
+    function dd:GetValue() return self.value end
+
+    local function Render()
+        for i, b in ipairs(popup.rows) do
+            local e = list[offset + i]
+            b.entry = e
+            if e then
+                b.text:SetText((e[1] == dd.value and "|cffffd100" or "") .. tostring(e[2]))
+                b:Show()
+            else
+                b:Hide()
+            end
+        end
+    end
+
+    local function Build()
+        popup = CreateFrame("Frame", nil, dd, BACKDROP_TEMPLATE)
+        W.ApplyBackdrop(popup, 0.97)
+        popup:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
+        popup:SetFrameStrata("DIALOG")
+        popup.rows = {}
+        local w = math.max(width, 160)
+        for i = 1, DROPDOWN_ROWS do
+            local b = CreateFrame("Button", nil, popup)
+            b:SetSize(w - 12, DROPDOWN_ROW_H)
+            b:SetPoint("TOPLEFT", 6, -6 - (i - 1) * DROPDOWN_ROW_H)
+            local hl = b:CreateTexture(nil, "HIGHLIGHT")
+            hl:SetAllPoints()
+            W.Color(hl, 1, 1, 1, 0.1)
+            b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            b.text:SetPoint("LEFT", 2, 0)
+            b.text:SetWidth(w - 16)
+            b.text:SetJustifyH("LEFT")
+            b:SetScript("OnClick", function(self)
+                popup:Hide()
+                if not self.entry then return end
+                dd:SetValue(self.entry[1])
+                if onChange then onChange(dd.value) end
+            end)
+            popup.rows[i] = b
+        end
+        popup:EnableMouseWheel(true)
+        popup:SetScript("OnMouseWheel", function(_, delta)
+            offset = math.max(0, math.min(#list - DROPDOWN_ROWS, offset - delta * 3))
+            Render()
+        end)
+        popup.width = w
+    end
+
+    dd:SetScript("OnClick", function()
+        if popup and popup:IsShown() then return popup:Hide() end
+        if not popup then Build() end
+        list, offset = Options(), 0
+        popup:SetSize(popup.width, math.min(#list, DROPDOWN_ROWS) * DROPDOWN_ROW_H + 12)
+        Render()
+        popup:Show()
+    end)
+    dd:HookScript("OnHide", function()
+        if popup then popup:Hide() end
+    end)
+    return dd
 end
 
 -- Sets a script of an edit box made by W.SearchBox (hooked on the client's template, which needs its own).

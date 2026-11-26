@@ -6,7 +6,7 @@ Farming features (goals, tracker, arrow, sessions, "best farm") are optional. Th
 
 ## Features
 
-- **Item pages.** Open with `/worldcodex item <name>`, the key binding (Key Bindings > AddOns: open the page of the item or NPC under the mouse), the WorldCodex button under item links, a double-click in a list, or Alt-click on links (optional). Pages have back and forward history and a search box. Tabs, each shown only when it has entries:
+- **Item pages.** Open with `/worldcodex item <name>`, the key binding (Key Bindings > AddOns: open the page of the item or NPC under the mouse), the WorldCodex button under item links, a double-click in a list, or Alt-click on links (optional). Pages have back and forward history and a search box that finds any item, NPC or source from every page and list (the lists have their own filter box). Tabs, each shown only when it has entries:
   - *Dropped by*, *Gathered from*, *Contained in*, *Quests*, *Processing*: every source with level, zone, a rate bar and the number of observations;
   - *Sold by*: vendor, zone, price (also token costs), stack size, limited stock;
   - *Crafting*: what the item is made from, and what it is a reagent for;
@@ -24,6 +24,7 @@ Farming features (goals, tracker, arrow, sessions, "best farm") are optional. Th
   - Also: what the NPC sells and which quests it starts or ends.
   - Location: the zones, a small spawn map, and "Show on map" for the world map.
   - Coin per kill, level, classification, roles and whether it is hostile.
+- **Advanced search.** A tab of its own: items by name, quality, item level, required level, type, slot, a stat (with a minimum) and where they come from (mobs, gathering, chests, quests, vendors, crafting); NPCs and sources by name, kind, level, classification, reaction, role, zone and the items they drop; quests by name, level, zone, quest giver, reward, repeat type and whether you have done them. Quest levels are recorded from the quest log and shared.
 - **Chests, herbs and veins.** Hover one to see its drops in the tooltip. The page key opens its page there too.
 - **Where NPCs stand.** Recorded whenever you talk to an NPC (vendor, quest, trainer, flight master, bank). Addons can't read other units' positions, so your own position is used, which is only close enough while you interact. NPCs you just see nearby (mouseover, target, nameplates) add their name, level and reaction, but no location. These locations are shared with the community data.
 - **Your data vs everyone else's.** Every page has a switch: *All*, *Mine* or *Community*. Rate bars show your own rate as a second marker: green when it is clearly higher, red when clearly lower (two-proportion test, p < 0.01, at least 20 observations on both sides). Your own upload is never counted on the community side. "Luckier than 82% of players" is your position in the binomial distribution. `/worldcodex compare` lists every drop where your rate differs, which also catches loot tables that changed on this server.
@@ -162,7 +163,7 @@ Code layout:
 - `Collector`: kills, loot, gathering
 - `AH/`: history, scanner, `C_AuctionHouse` adapter
 - `Quests`, `Vendors`, `Crafting`: quest, merchant and profession windows
-- `Lookup`: read models for the pages (sections, ranking, you vs everyone, search)
+- `Lookup`: read models for the pages (sections, ranking, you vs everyone, search); `Search`: the advanced search
 - `UI/Page*`: the WorldCodex window, item, source, KPI and extra tabs; `UI/Browser`: its lists; `UI/Charts`: rate bars, columns, tables; `UI/Widgets`: building blocks in the client's own style (spellbook-like window and book, Blizzard fonts and templates); `UI/Portraits`: still NPC portraits for lists and pages
 - `Nav`, `Farm`, `KPI` (optional farming), `Sync`, `Report`, other `UI/`
 

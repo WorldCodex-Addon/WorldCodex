@@ -293,6 +293,7 @@ local CLASSIFICATION = {
     rareelite = L["rare elite"],
     worldboss = L["world boss"],
 }
+R.CLASSIFICATION = CLASSIFICATION
 
 local function PriceRows(itemId)
     local rows = {}
@@ -358,6 +359,8 @@ local function StatLabel(key)
     if type(label) == "string" and label ~= "" and not ns.IsSecret(label) then return label end
     return key
 end
+
+R.StatLabel = StatLabel
 
 local SHOWN_APART = { RESISTANCE0_NAME = true, ITEM_MOD_DAMAGE_PER_SECOND_SHORT = true }
 

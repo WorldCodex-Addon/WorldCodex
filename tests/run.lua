@@ -1914,17 +1914,22 @@ test("lists and pages share one window and one history", function()
     eq(ns.Page._State().id, "sources", "back returns to the list")
 
     ns.Browser.Toggle("items")
-    ns.Browser.SetSearch("linen")
+    ns.Browser.SetFilter("linen")
     eq(#ns.Browser._State().data, 1)
-    eq(ns.Page._State().search, "linen")
+    eq(ns.Page._State().filter, "linen")
+    ok((ns.Page._State().search or "") == "", "the window's search box is not the list filter")
+    local hits = ns.Page.Search("kob")
+    ok(hits[1] and hits[1].type == "source", "the window's search finds sources while a list is shown")
+    eq(#ns.Browser._State().data, 1, "and leaves the list filter alone")
+    eq(ns.Page._State().filter, "linen")
     ns.Browser.OpenPage(ns.Browser._State().data[1])
     st = ns.Page._State()
     eq(st.type, "item")
     eq(st.section, "items")
-    eq(st.search, "", "search box is empty on pages")
+    eq(st.filter, nil, "pages have no list filter")
     ns.Page.Back()
     st = ns.Page._State()
-    eq(st.search, "linen", "the list keeps its filter")
+    eq(st.filter, "linen", "the list keeps its filter")
     eq(#st.rows, 1)
 
     ns.Browser.Toggle("ah")
@@ -3605,10 +3610,10 @@ test("browser shows bag items by default, all items when searching or unticked",
     eq(#st.data, 2, "only the two bag items")
     ns.Browser.Toggle("ah")
     eq(#st.data, 1, "AH tab: bag items with prices")
-    ns.Browser.SetSearch("ring")
+    ns.Browser.SetFilter("ring")
     eq(#st.data, 1)
     eq(st.data[1].id, 200, "search covers items outside the bags")
-    ns.Browser.SetSearch("")
+    ns.Browser.SetFilter("")
     ns.db.settings.browserBagsOnly = false
     local t0 = os.clock()
     ns.Browser.Toggle("items")
@@ -3618,7 +3623,7 @@ test("browser shows bag items by default, all items when searching or unticked",
     ns.Browser.Refresh()
     local second = os.clock() - t0
     ok(second < first / 2, string.format("cached rebuild faster (%.3fs vs %.3fs)", second, first))
-    ns.Browser.SetSearch("thing 1499")
+    ns.Browser.SetFilter("thing 1499")
     ok(#st.data >= 1 and #st.data <= 20, "search narrows the list")
     print(string.format("      15k items: first build %.0f ms, cached %.0f ms", first * 1000, second * 1000))
     _G.C_Container = nil
@@ -3918,6 +3923,155 @@ test("quest rewards are recorded as a source with giver location", function()
     ok(ns.Nav.Label(list[1]):find("done"))
     ok(ns.Report.ItemDetail(300):find("Quest: The Defias Brotherhood"), "shown in item details")
     ClearQuestUI()
+end)
+
+test("quest level from the quest log is recorded and shared like a mob level", function()
+    local env = Env({ completed = {} })
+    QuestUI(env, { id = 155, title = "The Defias Brotherhood", giver = "Gryan", rewards = {}, choices = {} })
+    local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+    _G.C_QuestLog.GetLogIndexForQuestID = function(id) return id == 155 and 3 or nil end
+    _G.C_QuestLog.GetInfo = function(i) return i == 3 and { questID = 155, level = 18 } or nil end
+    ns.Dispatch("QUEST_DETAIL")
+    ns.Dispatch("QUEST_ACCEPTED", 155)
+    _G.C_QuestLog.GetInfo = function() return nil end -- gone from the log at the turn-in
+    ns.Dispatch("QUEST_COMPLETE")
+    ns.Dispatch("QUEST_TURNED_IN", 155, 0, 0)
+    local rec = ns.db.sources["quest:155"]
+    eq(rec.lmin, 18)
+    eq(rec.lmax, 18)
+    eq(ns.Store.Snapshot().src["quest:155"].lv[1], 18, "shared as lv")
+    ClearQuestUI()
+end)
+
+local function SearchData(env)
+    env.items[300] = {
+        name = "Defias Boots",
+        quality = 2,
+        ilvl = 22,
+        req = 17,
+        classId = 4,
+        subclassId = 2,
+        equipLoc = "INVTYPE_FEET",
+    }
+    env.items[301] =
+        { name = "Militia Dagger", quality = 1, ilvl = 8, req = 3, classId = 2, equipLoc = "INVTYPE_WEAPON" }
+    env.items[302] = { name = "Smite's Mighty Hammer", quality = 3, ilvl = 24, req = 18, classId = 2 }
+    env.items[302].equipLoc = "INVTYPE_2HWEAPON"
+    local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+    local kobold = SeedKobold(ns, 40, 8)
+    kobold.lmin, kobold.lmax = 5, 7
+    local defias = ns.Store.EnsureSource(116, "Defias Bandit", "mob")
+    defias.kills, defias.attempts, defias.lb = 10, 10, 10
+    defias.lmin, defias.lmax, defias.cls = 15, 16, "elite"
+    defias.loot[300] = { d = 1, q = 1 }
+    ns.Store.AddSpawn(defias, 1436, 0.4, 0.5)
+    ns.db.maps[1436] = "Westfall"
+    ns.db.vendors[777] = { nm = "Innkeeper Farley", i = { [301] = { p = 5 } } }
+    ns.db.npcs[777] = { nm = "Innkeeper Farley", lv = { 30, 30 }, r = "friendly", f = { vendor = true, gossip = true } }
+    ns.db.items[302] = { st = { ITEM_MOD_STRENGTH_SHORT = 11, ITEM_MOD_STAMINA_SHORT = 4 }, dv = 1 }
+    ns.db.items[300] = { st = { ITEM_MOD_STAMINA_SHORT = 3 }, dv = 1 }
+    local q = ns.Store.EnsureSource("quest:155", "The Defias Brotherhood", "quest")
+    q.attempts, q.gid, q.lmin, q.lmax, q.rep = 1, 777, 18, 18, nil
+    q.loot[302] = { d = 1, q = 1 }
+    local d = ns.Store.EnsureSource("quest:200", "Kobold Candles", "quest")
+    d.attempts, d.lmin, d.lmax, d.rep = 1, 6, 6, "daily"
+    ns.Store.indexDirty, ns.Vendors.indexDirty = true, true
+    ns.Fire("DATA_CHANGED", "test")
+    return ns
+end
+
+local function Ids(rows)
+    local out = {}
+    for _, r in ipairs(rows) do
+        out[#out + 1] = tostring(r.id)
+    end
+    return table.concat(out, ",")
+end
+
+test("advanced search finds items by quality, level, slot, stat and origin", function()
+    local ns = SearchData(Env())
+    local S = ns.Search
+    eq(Ids(S.Run("items", { quality = 2 })), "302,300", "uncommon or better, highest item level first")
+    eq(Ids(S.Run("items", { ilvlMin = "20", ilvlMax = "23" })), "300")
+    eq(Ids(S.Run("items", { reqMax = "5", class = 2 })), "301")
+    eq(Ids(S.Run("items", { slot = "INVTYPE_FEET" })), "300")
+    eq(Ids(S.Run("items", { stat = "ITEM_MOD_STAMINA_SHORT" })), "302,300")
+    eq(Ids(S.Run("items", { stat = "ITEM_MOD_STAMINA_SHORT", statMin = "4" })), "302")
+    eq(Ids(S.Run("items", { origin = "mob" })), "300,100", "dropped by mobs")
+    eq(Ids(S.Run("items", { origin = "vendor" })), "301")
+    eq(Ids(S.Run("items", { origin = "quest" })), "302")
+    eq(Ids(S.Run("items", { name = "defias", origin = "mob" })), "300")
+    eq(#S.Run("items", { slot = "INVTYPE_HEAD" }), 0)
+    local rows = S.Run("items", { stat = "ITEM_MOD_STRENGTH_SHORT" })
+    eq(rows[1].stat, 11, "stat value for the column")
+    ok(#S.Stats() == 2, "stat options from the recorded items")
+end)
+
+test("advanced search finds NPCs and sources by kind, level, classification, role, zone and drops", function()
+    local ns = SearchData(Env())
+    local S = ns.Search
+    eq(Ids(S.Run("npcs", { levelMin = "10", levelMax = "20" })), "116")
+    eq(Ids(S.Run("npcs", { classification = "elite" })), "116")
+    eq(Ids(S.Run("npcs", { classification = "normal", kind = "mob" })), "1234")
+    eq(Ids(S.Run("npcs", { role = "vendor" })), "777", "NPCs that drop nothing are found too")
+    eq(Ids(S.Run("npcs", { reaction = "friendly" })), "777")
+    eq(Ids(S.Run("npcs", { kind = "npc" })), "777")
+    eq(Ids(S.Run("npcs", { zone = "westf" })), "116")
+    eq(Ids(S.Run("npcs", { drops = "boots" })), "116")
+    eq(Ids(S.Run("npcs", { name = "kob" })), "1234")
+    local all = S.Run("npcs", {})
+    for _, r in ipairs(all) do
+        ok(not tostring(r.id):find("^quest:"), "quests have their own tab")
+    end
+end)
+
+test("advanced search finds quests by level, giver, reward, repeat and status", function()
+    local env = Env({ completed = { [155] = true } })
+    _G.C_QuestLog = { IsQuestFlaggedCompleted = function(id) return env.completed[id] or false end }
+    local ns = SearchData(env)
+    local S = ns.Search
+    eq(Ids(S.Run("quests", {})), "quest:200,quest:155", "lowest level first")
+    eq(Ids(S.Run("quests", { levelMin = "10" })), "quest:155")
+    eq(Ids(S.Run("quests", { giver = "farley" })), "quest:155")
+    eq(Ids(S.Run("quests", { reward = "hammer" })), "quest:155")
+    eq(Ids(S.Run("quests", { ["repeat"] = "daily" })), "quest:200")
+    eq(Ids(S.Run("quests", { ["repeat"] = "once" })), "quest:155")
+    eq(Ids(S.Run("quests", { status = "open" })), "quest:200")
+    eq(Ids(S.Run("quests", { status = "done" })), "quest:155")
+    _G.C_QuestLog = nil
+end)
+
+test("advanced search page: form on the right, results on the left, one tab per kind", function()
+    local env = Env()
+    env.items[300] = { name = "Defias Boots", quality = 2, ilvl = 22, classId = 4, equipLoc = "INVTYPE_FEET" }
+    local ns = Stub.Boot(ROOT, env)
+    local defias = ns.Store.EnsureSource(116, "Defias Bandit", "mob")
+    defias.kills, defias.attempts, defias.lb = 10, 10, 10
+    defias.loot[300] = { d = 1, q = 1 }
+    ns.Store.indexDirty = true
+    ok(ns.Page.Show({ type = "search", id = "all" }), "shown")
+    local st = ns.Page._State()
+    eq(st.section, "search")
+    eq(st.tabs[1], "items")
+    eq(st.tabs[3], "quests")
+    eq(st.panel, "search:items", "the form on the right page")
+    eq(#st.rows, 0, "nothing until searched")
+    ns.SearchPage.Show("items", { quality = 2 })
+    Advance(ns, 1)
+    st = ns.Page._State()
+    eq(st.tab, "items")
+    eq(Ids(st.rows), "300")
+    ok(st.sub:find("1"), st.sub)
+    ns.Page.types.search.Open(st.rows[1])
+    eq(ns.Page._State().type, "item", "double-click opens the page")
+    ns.Page.Back()
+    eq(Ids(ns.Page._State().rows), "300", "results survive the way back")
+    ns.SearchPage.Show("npcs", { drops = "boots" })
+    Advance(ns, 1)
+    st = ns.Page._State()
+    eq(st.tab, "npcs")
+    eq(st.panel, "search:npcs")
+    eq(Ids(st.rows), "116")
 end)
 
 test("quest giver, turn-in npc and required items are recorded", function()

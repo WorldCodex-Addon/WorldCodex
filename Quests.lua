@@ -2,7 +2,8 @@ local _, ns = ...
 
 -- Quests as item sources. The reward window (QUEST_COMPLETE) lists fixed and choice rewards; the
 -- turn-in (QUEST_TURNED_IN) counts as one attempt. The accept location is stored as the quest's
--- spawn so navigation leads to the quest giver.
+-- spawn so navigation leads to the quest giver. The quest's level (from the quest log, while the quest is
+-- in it) is kept as the record's level range (lmin = lmax), shared like a mob's level (snapshot lv).
 local Q = {}
 ns.Quests = Q
 
@@ -50,6 +51,23 @@ local function ReadRewards(kind, count)
     return out
 end
 
+-- Level of a quest in the log (nil when it is not in the log or the client does not say).
+function Q.Level(questId)
+    local level
+    local log = C_QuestLog
+    if log and log.GetLogIndexForQuestID and log.GetInfo then
+        local index = ns.Call(log.GetLogIndexForQuestID, questId)
+        local info = index and ns.Call(log.GetInfo, index)
+        if type(info) == "table" then level = ns.Plain(info.level) end
+    end
+    if (type(level) ~= "number" or level <= 0) and log and log.GetQuestDifficultyLevel then
+        level = ns.Call(log.GetQuestDifficultyLevel, questId)
+    end
+    level = tonumber(level)
+    if not level or level <= 0 or level > 100 then return nil end
+    return math.floor(level)
+end
+
 local function RepeatType()
     if QuestIsDaily and QuestIsDaily() then return "daily" end
     if QuestIsWeekly and QuestIsWeekly() then return "weekly" end
@@ -84,6 +102,7 @@ function Q.OnDetail()
         giver = ns.Call(UnitName, "npc"),
         gid = gid,
         si = not gid and StartItem() or nil,
+        lv = Q.Level(questId),
     }
 end
 
@@ -110,7 +129,9 @@ function Q.OnAccepted(a1, a2)
         start.title = detail.title
         start.gid = detail.gid
         start.si = detail.si
+        start.lv = detail.lv
     end
+    start.lv = Q.Level(questId) or start.lv
     Starts()[questId] = start
 end
 
@@ -125,6 +146,7 @@ function Q.OnRewardWindow()
         rep = RepeatType(),
         npc = ns.Call(UnitName, "npc"),
         tid = Q.NpcKey(),
+        lv = Q.Level(questId),
     }
 end
 
@@ -158,6 +180,11 @@ function Q.OnTurnedIn(questId, _, money)
     progress = nil
     if p and next(p.req) then rec.req = p.req end
     if not rec.tid and p and p.tid then rec.tid = p.tid end
+    local level = (o and o.lv) or (start and start.lv)
+    if level and (rec.lmin ~= level or rec.lmax ~= level) then
+        rec.lmin, rec.lmax = level, level
+        Store.Mark(rec)
+    end
     Starts()[questId] = nil
     Store.CountAttempt(key, rec, ns.InGroup())
     if o then

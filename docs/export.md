@@ -51,7 +51,7 @@ Untick sections in the window to leave them out.
     denominator (attempts made while a quest needed the item). `d`, `q` and `h` then count only those attempts.
   - Coin: `money`, `mc`, `ca`, `mmin`, `mmax`.
   - Spawns: `spawns = {mapId: {cell: count}}`.
-  - Mob details: `lmin`, `lmax`, `cls`.
+  - Mob details: `lmin`, `lmax`, `cls`. Quests keep their quest level in `lmin`/`lmax`.
   - Dry streaks: `streak`.
   - Farming pace: `pk`/`ps` (kills and seconds).
   - Timestamps: `first`, `last`.

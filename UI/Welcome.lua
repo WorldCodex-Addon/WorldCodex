@@ -30,7 +30,7 @@ function We.Sections()
     )
     add(
         L["3. Open the book"],
-        L["Type /wcx or left-click the minimap button. The tabs at the bottom switch between the lists. Click an entry for its facts, double-click it for its page, or type a name into the search box. The item list starts with your bags only; untick that or search to see everything."]
+        L["Type /wcx or left-click the minimap button. The tabs at the bottom switch between the lists. Click an entry for its facts, double-click it for its page, or type a name into the search box at the top to jump to any item or source. The filter box on a list narrows that list. The item list starts with your bags only; untick that or filter to see everything."]
     )
     local key = PageKey()
     local jump =

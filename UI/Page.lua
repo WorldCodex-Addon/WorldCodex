@@ -3,8 +3,8 @@ local _, ns = ...
 -- The WorldCodex window ("Wowhead in game"), in the look of Blizzard's spellbook: one window
 -- (W.JournalWindow) with an open book (W.Book) for the browse lists (UI/Browser.lua) and the item,
 -- source and compare pages. The top bar holds the back/forward history, the data status, the layer
--- switch (All / Mine / Community), the search box (filters a list, or jumps to a page), the page tabs and
--- the tools; the left page the page heading, its actions and the content (a table or a custom frame);
+-- switch (All / Mine / Community), the search box (finds items and sources everywhere and jumps to their
+-- page; the lists have their own filter box, UI/Browser.lua), the page tabs and the tools; the left page the page heading, its actions and the content (a table or a custom frame);
 -- the right page the side panel (analysis of the selected row, facts, or a preview text). Section tabs
 -- sit under the window.
 --
@@ -16,7 +16,7 @@ local _, ns = ...
 --                          ; solo = true hides the tab buttons }
 --   Columns[colset]; Custom[name](parent) -> frame with :Update(id, layer, tab)
 --   Select(row, tab), Click(row, button), Open(row), RowTooltip(tooltip, row), KeyOf(row), EmptyText(id)
---   Query(id) -> text when the search box filters this page; Filter(id, text) applies it
+--   Query(id) -> the page's own filter text (lists), for P._State
 --   live = false: no refresh on data changes; sticky = true: the selected row survives navigation;
 --   noLayers = true: no layer switch
 local P = {}
@@ -32,6 +32,7 @@ local BOOK_TOP, BOOK_BOTTOM = 80, 4
 local SPLIT = 648
 local PAGE_TOP, PAGE_BOTTOM = 112, 40 -- text area of both pages, from the window's top / bottom edge
 local LEFT_X, LEFT_R = 56, SPLIT - 36
+P.PAGE_TOP, P.LEFT_X, P.LEFT_R = PAGE_TOP, LEFT_X, LEFT_R
 local RIGHT_X, RIGHT_R = SPLIT + 36, WIDTH - 52
 -- left page: heading (picture, title, subtitle), rule, info lines, rows of action buttons, content
 local DIVIDER_Y, INFO_Y = PAGE_TOP + 52, PAGE_TOP + 66
@@ -64,6 +65,7 @@ P.SECTIONS = {
     { id = "farming", label = L["Farming"], farming = true },
     { id = "compare", label = L["Differences"], page = { type = "compare", id = "all" } },
     { id = "kpi", label = L["KPIs"], page = { type = "kpi", id = "all" } },
+    { id = "search", label = L["Advanced search"], page = { type = "search", id = "all" } },
 }
 
 local f
@@ -819,10 +821,6 @@ function P.Show(entry, noHistory)
     for _, t in pairs(tables) do
         if not t.sticky then t.selected = false end
     end
-    -- the search box shows the filter of a list and is empty on pages
-    local renderer = P.types[entry.type]
-    local q = renderer.Query and renderer.Query(entry.id) or ""
-    if f.search:GetText() ~= q then f.search:SetText(q) end
     f.resultsFrame:Hide()
     f:Show()
     P.Refresh()
@@ -940,18 +938,6 @@ local function Pick(e)
     end
 end
 
--- True when the search box filters the page on screen (a list) instead of jumping to a page.
-local function Filtering()
-    local renderer = Cur()
-    return renderer and renderer.Query and renderer.Query(current.id) ~= nil
-end
-
-local function ApplyFilter()
-    local renderer = Cur()
-    if renderer and renderer.Filter then renderer.Filter(current.id, f.search:GetText() or "") end
-    P.Refresh()
-end
-
 function P.Search(text)
     P.Create()
     f.search:SetText(text or "")
@@ -1036,14 +1022,9 @@ function P.Create()
     f.info:SetSpacing(2)
     f.info:SetJustifyV("TOP")
 
-    -- search: filters a list, or jumps to a page through a result dropdown
-    f.search = W.SearchBox(f, 210, function()
-        if Filtering() then
-            ApplyFilter()
-        else
-            RunSearch()
-        end
-    end)
+    -- search: the same on every page and list; finds items and sources and jumps to their page through
+    -- a result dropdown
+    f.search = W.SearchBox(f, 210, RunSearch, L["Search items and sources"])
     f.search:SetPoint("TOPRIGHT", -34, -29)
     if not f.search.blizzard then
         f.searchHint = W.Text(f, "frameMuted")
@@ -1076,24 +1057,14 @@ function P.Create()
         if not user then return end
         token = token + 1
         local mine = token
-        local filtering = Filtering()
-        ns.After(filtering and 0.3 or 0.25, function()
-            if mine ~= token then return end
-            if filtering and Filtering() then
-                ApplyFilter()
-            else
-                RunSearch()
-            end
+        ns.After(0.25, function()
+            if mine == token then RunSearch() end
         end)
     end)
     f.search:SetScript("OnEnterPressed", function(self)
         token = token + 1
         self:ClearFocus()
-        if Filtering() then
-            ApplyFilter()
-        else
-            Pick(RunSearch()[1])
-        end
+        Pick(RunSearch()[1])
     end)
     W.OnEdit(f.search, "OnEditFocusGained", function() ns.Lookup.WarmNames() end)
 
@@ -1201,6 +1172,7 @@ function P._State()
         picture = f.picture,
         section = section,
         search = f.search:GetText(),
+        filter = Cur() and Cur().Query and Cur().Query(current.id) or nil,
         chrome = f.chrome,
         panel = f.panelKey,
         details = f.panelKey == "details" and P.details or nil,

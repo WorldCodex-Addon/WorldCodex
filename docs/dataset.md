@@ -137,7 +137,7 @@ the same data with numeric keys.
 | `cm` | `[coinDrops, attempts, min, max]` | How often coin dropped, the attempts since coin tracking began, and the smallest and largest amounts |
 | `ch` | `{ itemId: true }` | Quest choice rewards |
 | `rp` | `"daily"`/`"weekly"` | Repeatable quest |
-| `lv` | `[min, max]` | Mob level range |
+| `lv` | `[min, max]` | Mob level range; for quests the quest level (min = max) |
 | `cl` | string | `elite rare rareelite worldboss` |
 | `qg`, `qt` | npc id or `"go:<id>"` | Quest giver and turn-in |
 | `rq` | `{ itemId: count }` | Items the quest requires |

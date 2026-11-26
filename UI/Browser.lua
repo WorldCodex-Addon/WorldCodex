@@ -3,13 +3,15 @@ local _, ns = ...
 -- Browse lists of the WorldCodex window: Items, Sources, Auction house and (with the farming
 -- features) Farming. They are pages of type "list" in the same window and history as the item and
 -- source pages (UI/Page.lua): a click shows a preview in the side panel, a double-click opens the page.
+-- The window's search box finds items and sources everywhere; each list has its own filter box (top
+-- right of the left page) that narrows only that list.
 local L = ns.L
 local W, C = ns.Widgets, ns.Charts
 local P = ns.Page
 local B = {}
 ns.Browser = B
 
--- tab = list shown last; data = its rows (default order); query[list] = search text per list;
+-- tab = list shown last; data = its rows (default order); query[list] = filter text per list;
 -- reset[list] = scroll back to the top on the next build (new search or filter).
 local state = { tab = "items", data = {}, selected = nil, query = {}, reset = {} }
 
@@ -149,7 +151,7 @@ local function Known(id)
     return it ~= nil and it.n ~= nil
 end
 
--- With "bags only" ticked and no search text, item lists show only what is in the bags.
+-- With "bags only" ticked and no filter text, item lists show only what is in the bags.
 local function BagFilter(q) return q == "" and ns.db.settings.browserBagsOnly end
 
 local function ItemRow(id)
@@ -290,7 +292,7 @@ local function NeedItem()
     return id
 end
 
-local goalInput, bagsOnly
+local goalInput, bagsOnly, filterBox
 
 local function GoalSelected()
     local id = NeedItem()
@@ -344,6 +346,35 @@ local function EnsureWidgets()
     goalInput = W.Input(layer, 36)
     goalInput:SetNumeric(true)
     goalInput:SetText("20")
+
+    -- filter box of the lists, at the right end of the heading
+    local function Apply()
+        local tab = state.tab
+        if not IsList(tab) then return end
+        local text = filterBox:GetText() or ""
+        if text == (state.query[tab] or "") then return end
+        state.query[tab] = text
+        state.reset[tab] = true
+        P.Refresh()
+    end
+    filterBox = W.SearchBox(layer, 180, Apply, L["Filter list"])
+    filterBox:SetPoint("TOPRIGHT", P.Frame(), "TOPLEFT", P.LEFT_R, -(P.PAGE_TOP + 2))
+    local token = 0
+    W.OnEdit(filterBox, "OnTextChanged", function(_, user)
+        if not user then return end
+        token = token + 1
+        local mine = token
+        ns.After(0.3, function()
+            if mine == token then Apply() end
+        end)
+    end)
+    filterBox:SetScript("OnEnterPressed", function(self)
+        token = token + 1
+        self:ClearFocus()
+        Apply()
+    end)
+    W.OnEdit(filterBox, "OnEditFocusGained", function() ns.Lookup.WarmNames() end)
+    P.AddWidget(filterBox, function(entry) return entry.type == "list" and IsList(entry.id) end)
 end
 
 -- ---------------------------------------------------------------- list page renderer
@@ -356,6 +387,8 @@ function R.Prepare(id)
     EnsureWidgets()
     state.tab = id
     if not IsList(id) then return end
+    local text = state.query[id] or ""
+    if filterBox:GetText() ~= text then filterBox:SetText(text) end
     local q = Query(id)
     state.data = ns.Profile("browser", Build[id], q)
     SortData(id)
@@ -374,7 +407,7 @@ function R.Header(id)
     if IsList(id) then
         sub = string.format(L["%d entries"], #state.data)
         if id ~= "sources" and BagFilter(Query(id)) then
-            sub = string.format(L["%d entries - items in your bags (untick or search to see all)"], #state.data)
+            sub = string.format(L["%d entries - items in your bags (untick or filter to see all)"], #state.data)
         end
     end
     local info = ""
@@ -459,7 +492,7 @@ function R.RowTooltip(tt, r)
     tt:AddLine(L["Double-click to open this source."], 0.5, 0.5, 0.5)
 end
 
--- The search box filters the lists (not the farming report).
+-- Filter text of a list (not the farming report).
 function R.Query(id)
     if not IsList(id) then return nil end
     return state.query[id] or ""
@@ -565,12 +598,13 @@ local function Showing(...)
     return false
 end
 
-function B.SetSearch(text)
+-- Filters the list on screen (its filter box, not the window's search).
+function B.SetFilter(text)
     if not Showing() or not IsList(state.tab) then return end
     R.Filter(state.tab, text or "")
-    P.Frame().search:SetText(text or "")
     P.Refresh()
 end
+B.SetSearch = B.SetFilter
 
 function B._State() return state end
 

@@ -126,14 +126,15 @@ function Stub.Install(env)
             "|cffffffff|Hitem:" .. id .. "|h[" .. it.name .. "]|h|r",
             it.quality or 1,
             it.ilvl or 1,
-            1,
+            it.req or 1,
             "",
-            "",
+            it.subclass or "",
             20,
-            "",
+            it.equipLoc or "",
             it.texture or 0,
             it.sell or 0,
-            it.classId
+            it.classId,
+            it.subclassId
     end
     G.GetSpellInfo = function(id) return env.spells and env.spells[id] or nil end
     G.CombatLogGetCurrentEventInfo = function() return unpack(env.cleu or {}) end

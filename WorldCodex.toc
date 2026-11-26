@@ -31,6 +31,7 @@ KPI.lua
 Sync.lua
 Report.lua
 Export.lua
+Search.lua
 UI\Widgets.lua
 UI\Charts.lua
 UI\Portraits.lua
@@ -42,6 +43,7 @@ UI\PageItem.lua
 UI\PageSource.lua
 UI\PageExtra.lua
 UI\PageKPI.lua
+UI\PageSearch.lua
 UI\Browser.lua
 UI\Arrow.lua
 UI\MapPins.lua
