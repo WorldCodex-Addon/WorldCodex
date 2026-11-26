@@ -492,7 +492,10 @@ function Lk.Search(q, limit)
                 local level
                 if s == 0 then
                     level = ns.Spells.Level(spellId)
-                    local hay = table.concat({ lower, rank and rank:lower() or "", level and (levelWord .. " " .. level) or "" }, " ")
+                    local hay = table.concat(
+                        { lower, rank and rank:lower() or "", level and (levelWord .. " " .. level) or "" },
+                        " "
+                    )
                     -- numbers match whole numbers only ("rank 1" must not find "level 10")
                     local numbers = {}
                     for d in hay:gmatch("%d+") do
