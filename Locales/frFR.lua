@@ -623,3 +623,7 @@ L["teaches %d"] = "enseigne %d"
 L["Spell"] = "Sort"
 L["No trainer has been seen teaching this spell yet."] = "Aucun maître n'a encore été vu enseigner ce sort."
 L["Spells"] = "Sorts"
+L["Upload at:"] = "Envoyer sur :"
+L["Upload data"] = "Envoyer les données"
+L["Upload your share string from /wcx upload at %s: it goes into the community data that comes with every update of the addon."] =
+    "Envoie ton texte de partage de /wcx upload sur %s : il rejoint les données communautaires fournies à chaque mise à jour de l'addon."

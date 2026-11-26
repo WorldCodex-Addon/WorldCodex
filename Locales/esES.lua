@@ -624,3 +624,7 @@ L["Spell"] = "Hechizo"
 L["No trainer has been seen teaching this spell yet."] =
     "Aún no se ha visto a ningún instructor enseñar este hechizo."
 L["Spells"] = "Hechizos"
+L["Upload at:"] = "Subir en:"
+L["Upload data"] = "Subir datos"
+L["Upload your share string from /wcx upload at %s: it goes into the community data that comes with every update of the addon."] =
+    "Sube tu texto para compartir de /wcx upload en %s: pasa a los datos de la comunidad que llegan con cada actualización del addon."

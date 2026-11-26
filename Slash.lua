@@ -13,6 +13,7 @@ local HELP = {
     "/worldcodex session [end] - current farming session",
     "/worldcodex ah [all|scan|stop|auto on|off|<item>] - auction house scanning",
     "/worldcodex sync [on|off|now] - guild/group sharing status",
+    "/worldcodex upload - share string and the address to upload it to the community data",
     "/worldcodex export [string|lua|json|csv [drops|quests|items|prices|history|vendors|recipes|trainers|spells|npcs]] | import",
     "/worldcodex report | top [n] | kinds | status | kpi",
     "/worldcodex options | prune | diag [clear|loot|perf|item <id>|trainer] | clear confirm",
@@ -285,6 +286,11 @@ local function Slash(msg)
     elseif cmd == "export" then
         local fmt, dataset = rest:lower():match("^(%S*)%s*(%S*)$")
         ns.UI.ShowExport(fmt ~= "" and fmt or "string", dataset ~= "" and dataset or nil)
+    elseif cmd == "upload" then
+        ns.UI.ShowExport("string")
+        if ns.UPLOAD_URL then
+            ns.Print(string.format(L["Upload this text at %s to add your data to the community data."], ns.UPLOAD_URL))
+        end
     elseif cmd == "import" then
         ns.UI.ShowImport()
     elseif cmd == "report" then

@@ -3298,6 +3298,25 @@ test("export window: formats, CSV tables and slash options", function()
     ok(ns.UI.ExportState().text:find("^WorldCodex_Export = "))
 end)
 
+test("upload address: export window, /wcx upload and the welcome guide", function()
+    local _, ns = PageEnv()
+    _G.SlashCmdList.WORLDCODEX("export")
+    local st = ns.UI.ExportState()
+    eq(st.upload, ns.UPLOAD_URL, "copyable address next to the share string")
+    ok(st.text:find("^WCX1:%S+$"), "share string stays clean (no appended comment)")
+    _G.SlashCmdList.WORLDCODEX("export json")
+    eq(ns.UI.ExportState().upload, nil, "only with the share string")
+    _G.SlashCmdList.WORLDCODEX("upload")
+    st = ns.UI.ExportState()
+    eq(st.fmt, "string")
+    eq(st.upload, "https://worldcodex.net/upload")
+    local found
+    for _, s in ipairs(ns.Welcome.Sections()) do
+        if s.text:find(ns.UPLOAD_URL, 1, true) then found = true end
+    end
+    ok(found, "welcome guide names the upload page")
+end)
+
 -- ---------------------------------------------------------------- share strings: deltas, speed
 
 local ME = "me00000000000001"

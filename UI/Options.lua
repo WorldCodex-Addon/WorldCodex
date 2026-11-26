@@ -51,6 +51,10 @@ local function Create()
     sub:SetText(L["Drop rates, sources and prices of every item, learned from play. /worldcodex help"])
     local guide = W.Button(panel, L["How to use WorldCodex"], 190, function() ns.Welcome.Show() end)
     guide:SetPoint("TOPRIGHT", -16, -16)
+    if ns.UPLOAD_URL then
+        local upload = W.Button(panel, L["Upload data"], 130, function() ns.Slash("upload") end)
+        upload:SetPoint("RIGHT", guide, "LEFT", -8, 0)
+    end
     local function Group(title, list, x)
         local head = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         head:SetPoint("TOPLEFT", x, -64)

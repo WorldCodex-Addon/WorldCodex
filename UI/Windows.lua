@@ -46,19 +46,6 @@ local function ExportText(fmt, dataset, sections)
     return ns.Export.Json(sections)
 end
 
-local function ShareText(text)
-    if ns.WEB_BASE then
-        -- the share string is what the website accepts as an upload
-        text = text
-            .. "\n\n-- "
-            .. string.format(
-                L["Upload this text at %s to add your data to the community data."],
-                ns.WEB_BASE .. "/upload"
-            )
-    end
-    return text
-end
-
 local SHARE_HINT =
     L["Compact text with everything that can be shared: drops, quests, vendors, recipes, NPCs, items and current prices. Paste it into /worldcodex import or upload it to the website."]
 
@@ -117,6 +104,7 @@ local function Render()
     e.csvFrame:SetShown(e.fmt == "csv")
     e.hint:SetShown(e.fmt == "string")
     e.onlyNew:SetShown(e.fmt == "string" and ns.Store.DeltaBase() ~= nil)
+    if e.upload then e.upload:SetShown(e.fmt == "string") end
     for _, b in ipairs(e.csvButtons) do
         if b.id == e.dataset then
             b:LockHighlight()
@@ -138,7 +126,7 @@ local function Render()
                 return
             end
             e.hint:SetText(ShareHint(info))
-            ShowText(e, ShareText(text))
+            ShowText(e, text)
         end)
         return
     end
@@ -184,6 +172,30 @@ local function CreateExport()
         "GameFontHighlightSmall"
     )
     export.onlyNew:SetPoint("TOPLEFT", 14, -94)
+
+    -- share string: where to upload it. Addon text cannot be clicked open, so the address is a
+    -- copyable field (selected on click) instead of a comment inside the share string.
+    if ns.UPLOAD_URL then
+        local up = CreateFrame("Frame", nil, export)
+        up:SetPoint("TOPRIGHT", -34, -94)
+        up:SetSize(360, 22)
+        up.input = W.Input(up, 250)
+        up.input:SetPoint("RIGHT", 0, 0)
+        up.input:SetText(ns.UPLOAD_URL)
+        up.input:SetCursorPosition(0)
+        -- read-only: typing puts the address back
+        up.input:SetScript("OnTextChanged", function(self, user)
+            if user then self:SetText(ns.UPLOAD_URL) end
+        end)
+        up.input:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+        up.input:SetScript("OnEditFocusLost", function(self) self:HighlightText(0, 0) end)
+        up.label = up:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        up.label:SetPoint("RIGHT", up.input, "LEFT", -10, 0)
+        up.label:SetText(L["Upload at:"])
+        export.upload = up
+    else
+        export.upload = false
+    end
 
     -- full export: which sections
     export.sectionFrame = CreateFrame("Frame", nil, export)
@@ -257,6 +269,7 @@ function UI.ExportState()
         sections = export.sections,
         hint = export.hint:GetText(),
         onlyNew = export.onlyNew:IsShown() and not export.fullShare,
+        upload = export.upload and export.upload:IsShown() and export.upload.input:GetText() or nil,
     }
 end
 

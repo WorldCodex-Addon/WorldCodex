@@ -1,7 +1,7 @@
 local _, ns = ...
 
 -- Welcome window with a short guide: opens once after the first login, later with /worldcodex welcome
--- or from the options. The texts follow the settings (farming, key binding, website).
+-- or from the options. The texts follow the settings (farming, key binding, website, upload address).
 local L = ns.L
 local W = ns.Widgets
 local We = {}
@@ -49,11 +49,18 @@ function We.Sections()
             L["/wcx goto <item> leads you to the best known spot, /wcx goal <item> 20 tracks a goal. Both can be switched off in the options."]
         )
     end
-    add(
-        L["Sharing"],
+    local sharing =
         L["With your guild and group, drop data is exchanged automatically; you can switch that off in the options. /wcx export and /wcx import exchange it as text with anyone."]
-            .. (ns.WEB_BASE and (" " .. string.format(L["Community data: %s"], ns.WEB_BASE)) or "")
-    )
+    if ns.WEB_BASE then sharing = sharing .. " " .. string.format(L["Community data: %s"], ns.WEB_BASE) end
+    if ns.UPLOAD_URL then
+        sharing = sharing
+            .. " "
+            .. string.format(
+                L["Upload your share string from /wcx upload at %s: it goes into the community data that comes with every update of the addon."],
+                ns.UPLOAD_URL
+            )
+    end
+    add(L["Sharing"], sharing)
     return out
 end
 

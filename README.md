@@ -130,7 +130,7 @@ Optional addons and libraries, used if they are installed:
 
 The community data ships inside the addon (`Data/Community.lua`), so players get new data through normal CurseForge or Wago updates. Addons can't access the internet.
 
-1. Players upload their `WTF/Account/<account>/SavedVariables/WorldCodex.lua` or the share string from `/worldcodex export` on the WorldCodex website.
+1. Players upload their `WTF/Account/<account>/SavedVariables/WorldCodex.lua` or the share string from `/worldcodex upload` (or `/worldcodex export`) at <https://worldcodex.net/upload>.
 2. The website runs `tools/merge.py` on the uploads. Its JSON output feeds the online database; its Lua output is the next `Data/Community.lua`.
 3. The weekly GitHub workflow `.github/workflows/data.yml` downloads that file, checks it against the manifest, runs the tests, bumps the patch version and publishes the release.
 4. Guild members tell each other when a newer dataset exists.

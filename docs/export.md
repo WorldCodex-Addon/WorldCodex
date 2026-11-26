@@ -4,7 +4,7 @@ Open the export window with `/worldcodex export` (or `export lua|json|csv [table
 
 | Format | Contents | Use |
 |---|---|---|
-| Share string (`WCX1:…`) | Everything that can be merged: drops, quests, vendors, recipes, trainers, spells, NPCs, item facts, current auction prices with realm and faction | Website upload; `/worldcodex import` for friends and alts |
+| Share string (`WCX1:…`) | Everything that can be merged: drops, quests, vendors, recipes, trainers, spells, NPCs, item facts, current auction prices with realm and faction | Website upload (<https://worldcodex.net/upload>, `/worldcodex upload`); `/worldcodex import` for friends and alts |
 | Lua | The full export below, as `WorldCodex_Export = {…}` | Backup, your own scripts |
 | JSON | The full export below | Website, spreadsheets, other tools |
 | CSV | One table per kind of data (see below) | Spreadsheets |

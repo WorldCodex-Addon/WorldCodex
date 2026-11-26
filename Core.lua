@@ -3,9 +3,12 @@ local ADDON, ns = ...
 ns.ADDON = ADDON
 ns.VERSION = "0.2.0"
 
--- Public WorldCodex website (uploads and the online database). nil until it is online: then the pages
--- get "Web link" buttons and the export window shows where to upload.
+-- Public WorldCodex website (the online database). nil until its item and source pages are online:
+-- then the pages get "Web link" buttons.
 ns.WEB_BASE = nil
+-- Where share strings are uploaded into the community data (export window, welcome guide,
+-- /worldcodex upload, options). Independent of WEB_BASE: the upload page is already online.
+ns.UPLOAD_URL = "https://worldcodex.net/upload"
 
 -- Copyable web address of an item or source page ("item", 2589 / "source", 1234).
 function ns.WebUrl(kind, id)
