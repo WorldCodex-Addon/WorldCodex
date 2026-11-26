@@ -3704,39 +3704,41 @@ test("farming page: session facts on the left page, recent sessions as a table o
     eq(st.panel, "farmHistory", "recent sessions on the right page")
 end)
 
-test("every localized string has a German translation with the same placeholders", function()
-    local used = {}
-    for path in io.popen("ls *.lua AH/*.lua UI/*.lua"):lines() do
-        local src = io.open(path):read("*a")
-        for k in src:gmatch('L%["(.-)"%]') do
-            used[k] = path
+for _, loc in ipairs({ "deDE", "frFR", "esES" }) do
+    test("every localized string has a " .. loc .. " translation with the same placeholders", function()
+        local used = {}
+        for path in io.popen("ls *.lua AH/*.lua UI/*.lua"):lines() do
+            local src = io.open(path):read("*a")
+            for k in src:gmatch('L%["(.-)"%]') do
+                used[k] = path
+            end
         end
-    end
-    local de = io.open("Locales/deDE.lua"):read("*a")
-    local have = {}
-    -- key and value may be split over two lines by the formatter
-    for k, v in de:gmatch('L%["(.-)"%]%s*=%s*"(.-)"\n') do
-        have[k] = v
-    end
-    local missing, bad = {}, {}
-    local function specs(s)
-        local out = {}
-        for spec in s:gmatch("%%[%-%.%d]*[dsfx%%]") do
-            out[#out + 1] = spec
+        local text = io.open("Locales/" .. loc .. ".lua"):read("*a")
+        local have = {}
+        -- key and value may be split over two lines by the formatter
+        for k, v in text:gmatch('L%["(.-)"%]%s*=%s*"(.-)"\n') do
+            have[k] = v
         end
-        return table.concat(out, " ")
-    end
-    for k, path in pairs(used) do
-        if not have[k] then
-            missing[#missing + 1] = path .. ": " .. k
-        elseif specs(k) ~= specs(have[k]) then
-            bad[#bad + 1] = k
+        local missing, bad = {}, {}
+        local function specs(s)
+            local out = {}
+            for spec in s:gmatch("%%[%-%.%d]*[dsfx%%]") do
+                out[#out + 1] = spec
+            end
+            return table.concat(out, " ")
         end
-    end
-    table.sort(missing)
-    eq(#missing, 0, "untranslated:\n" .. table.concat(missing, "\n"))
-    eq(#bad, 0, "placeholders differ:\n" .. table.concat(bad, "\n"))
-end)
+        for k, path in pairs(used) do
+            if not have[k] then
+                missing[#missing + 1] = path .. ": " .. k
+            elseif specs(k) ~= specs(have[k]) then
+                bad[#bad + 1] = k
+            end
+        end
+        table.sort(missing)
+        eq(#missing, 0, "untranslated:\n" .. table.concat(missing, "\n"))
+        eq(#bad, 0, "placeholders differ:\n" .. table.concat(bad, "\n"))
+    end)
+end
 
 -- ---------------------------------------------------------------- navigation / farming
 

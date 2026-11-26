@@ -2,6 +2,9 @@
 ## Title: WorldCodex
 ## Notes: In-game item database: where every item drops, how often, how sure, and what it is worth. /worldcodex help
 ## Notes-deDE: Gegenstandsdatenbank im Spiel: wo jeder Gegenstand droppt, wie oft, wie sicher und was er wert ist. /worldcodex help
+## Notes-frFR: Base de données d'objets en jeu : où chaque objet tombe, à quelle fréquence, avec quelle certitude et ce qu'il vaut. /worldcodex help
+## Notes-esES: Base de datos de objetos en el juego: dónde cae cada objeto, con qué frecuencia, con qué certeza y cuánto vale. /worldcodex help
+## Notes-esMX: Base de datos de objetos en el juego: dónde cae cada objeto, con qué frecuencia, con qué certeza y cuánto vale. /worldcodex help
 ## Author: renfordt
 ## Version: 0.1.0
 ## X-Curse-Project-ID: 1831227
@@ -10,6 +13,8 @@
 
 Locales\enUS.lua
 Locales\deDE.lua
+Locales\frFR.lua
+Locales\esES.lua
 Core.lua
 Stats.lua
 Codec.lua
