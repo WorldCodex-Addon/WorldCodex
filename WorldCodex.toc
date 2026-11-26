@@ -6,7 +6,7 @@
 ## Notes-esES: Base de datos de objetos en el juego: dónde cae cada objeto, con qué frecuencia, con qué certeza y cuánto vale. /worldcodex help
 ## Notes-esMX: Base de datos de objetos en el juego: dónde cae cada objeto, con qué frecuencia, con qué certeza y cuánto vale. /worldcodex help
 ## Author: renfordt
-## Version: 0.1.0
+## Version: 0.2.0
 ## X-Curse-Project-ID: 1831227
 ## SavedVariables: WorldCodexDB, ItemsDB, MobLootDB
 ## OptionalDeps: TomTom, LibStub, LibDeflate, ChatThrottleLib, LibDataBroker-1.1, LibDBIcon-1.0

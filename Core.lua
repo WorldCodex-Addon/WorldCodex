@@ -1,7 +1,7 @@
 local ADDON, ns = ...
 
 ns.ADDON = ADDON
-ns.VERSION = "0.1.0"
+ns.VERSION = "0.2.0"
 
 -- Public WorldCodex website (uploads and the online database). nil until it is online: then the pages
 -- get "Web link" buttons and the export window shows where to upload.
