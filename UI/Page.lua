@@ -911,7 +911,10 @@ local function RunSearch()
             if e.type == "item" then
                 label = ns.ItemName(e.id, true)
             elseif e.type == "spell" then
-                label = tostring(e.name) .. " |cff888888(" .. (e.recipe and L["Recipe"] or L["Spell"]) .. ")|r"
+                label = tostring(e.name)
+                if e.rank then label = label .. " (" .. e.rank .. ")" end
+                if e.level then label = label .. " · " .. L["Level"] .. " " .. e.level end
+                label = label .. " |cff888888(" .. (e.recipe and L["Recipe"] or L["Spell"]) .. ")|r"
             else
                 label = tostring(e.name) .. " |cff888888(" .. (ns.KIND_LABEL[e.kind] or tostring(e.kind)) .. ")|r"
             end

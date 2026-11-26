@@ -2923,6 +2923,43 @@ test("class trainers: every service is read with all filters on, and the filters
     end)
 end)
 
+test("spell ranks and levels: recorded from the trainer and found by the search", function()
+    WithTrainerApi(function()
+        local env = NpcEnv()
+        env.spells = { [772] = "Rend", [6546] = "Rend", [6673] = "Battle Shout" }
+        local ns = Stub.Boot(ROOT, env)
+        OpenTrainer(ns, env, {
+            kind = "general",
+            title = "Warrior Trainer",
+            services = {
+                { name = "Rend", sub = "Rank 1", level = 4, spell = 772, cost = 10 },
+                { name = "Rend", sub = "Rank 2", level = 10, spell = 6546, cost = 100 },
+                { name = "Battle Shout", level = 6, spell = 6673, cost = 100 },
+            },
+        })
+        eq(ns.db.spells[6546].rk, "Rank 2", "rank from the trainer window")
+        eq(ns.Spells.Level(6546), 10)
+        local function Find(q)
+            local ids = {}
+            for _, e in ipairs(ns.Lookup.Search(q)) do
+                if e.type == "spell" then ids[#ids + 1] = e.id end
+            end
+            return ids
+        end
+        local both = Find("rend")
+        eq(#both, 2)
+        eq(both[1], 772, "lower level first")
+        eq(table.concat(Find("rend rank 2"), ","), "6546")
+        eq(table.concat(Find("rend (rank 1)"), ","), "772")
+        eq(table.concat(Find("rend level 10"), ","), "6546")
+        eq(#Find("rend rank 3"), 0)
+        ns.Page.Search("rend rank 2")
+        ns.Page.Show({ type = "spell", id = 6546 })
+        local sub = ns.Page._State().sub
+        ok(sub:find("Rank 2", 1, true) and sub:find("Level 10", 1, true), sub)
+    end)
+end)
+
 test("profession trainers: profession, skill requirement, recipe product and the pages", function()
     WithTrainerApi(function()
         local env = NpcEnv()

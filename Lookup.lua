@@ -475,28 +475,65 @@ function Lk.Search(q, limit)
             }
         end
     end
-    -- spells trainers teach and recipe spells (Spells.lua)
+    -- spells trainers teach and recipe spells (Spells.lua). Every word of the query must appear in
+    -- the name, the rank or the required level, so "rend rank 2", "verwunden 2" or "rend level 10" find one
+    -- rank among many.
     if ns.Spells then
-        local rec = ns.db.spells or {}
+        local words = {}
+        for w in q:gmatch("[^%s%(%)]+") do
+            words[#words + 1] = w
+        end
+        local levelWord = tostring(L["Level"]):lower()
         for spellId in pairs(ns.Spells.AllIds()) do
-            local name = (rec[spellId] and rec[spellId].n) or ns.SpellName(spellId)
-            local s = name and Score(name:lower(), q) or 0
-            if s > 0 then
-                out[#out + 1] = {
-                    type = "spell",
-                    id = spellId,
-                    name = name,
-                    recipe = ns.Crafting and ns.Crafting.ForSpell(spellId) ~= nil,
-                    score = s,
-                    n = 0,
-                }
+            local name, rank = ns.Spells.Brief(spellId)
+            if name then
+                local lower = name:lower()
+                local s = Score(lower, q)
+                local level
+                if s == 0 then
+                    level = ns.Spells.Level(spellId)
+                    local hay = table.concat({ lower, rank and rank:lower() or "", level and (levelWord .. " " .. level) or "" }, " ")
+                    -- numbers match whole numbers only ("rank 1" must not find "level 10")
+                    local numbers = {}
+                    for d in hay:gmatch("%d+") do
+                        numbers[d] = true
+                    end
+                    local all = #words > 0
+                    for _, w in ipairs(words) do
+                        local found
+                        if w:match("^%d+$") then
+                            found = numbers[w]
+                        else
+                            found = hay:find(w, 1, true)
+                        end
+                        if not found then
+                            all = false
+                            break
+                        end
+                    end
+                    if all then s = 1 end
+                end
+                if s > 0 then
+                    out[#out + 1] = {
+                        type = "spell",
+                        id = spellId,
+                        name = name,
+                        rank = rank,
+                        level = level or ns.Spells.Level(spellId),
+                        recipe = ns.Crafting and ns.Crafting.ForSpell(spellId) ~= nil,
+                        score = s,
+                        n = 0,
+                    }
+                end
             end
         end
     end
     table.sort(out, function(a, b)
         if a.score ~= b.score then return a.score > b.score end
         if a.n ~= b.n then return a.n > b.n end
-        return tostring(a.name) < tostring(b.name)
+        if a.name ~= b.name then return tostring(a.name) < tostring(b.name) end
+        -- ranks of one spell: lowest level first
+        return (a.level or 0) < (b.level or 0)
     end)
     for i = #out, limit + 1, -1 do
         out[i] = nil
