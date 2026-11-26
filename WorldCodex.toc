@@ -20,6 +20,8 @@ Quests.lua
 Vendors.lua
 Npcs.lua
 Crafting.lua
+Trainers.lua
+Spells.lua
 Items.lua
 AH\History.lua
 AH\Scanner.lua
@@ -41,6 +43,7 @@ UI\Page.lua
 UI\Details.lua
 UI\PageItem.lua
 UI\PageSource.lua
+UI\PageSpell.lua
 UI\PageExtra.lua
 UI\PageKPI.lua
 UI\PageSearch.lua

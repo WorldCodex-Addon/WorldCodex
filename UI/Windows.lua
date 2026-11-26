@@ -98,6 +98,8 @@ local CSV_LABEL = {
     history = L["Price history"],
     vendors = L["Vendors"],
     recipes = L["Recipes"],
+    trainers = L["Trainers"],
+    spells = L["Spells"],
     npcs = L["NPCs"],
 }
 
@@ -192,8 +194,8 @@ local function CreateExport()
             export.sections[sec.id] = v or nil
             Render()
         end)
-        local col, row = (i - 1) % 5, math.floor((i - 1) / 5)
-        cb:SetPoint("TOPLEFT", col * 150, -row * 24)
+        local col, row = (i - 1) % 6, math.floor((i - 1) / 6)
+        cb:SetPoint("TOPLEFT", col * 125, -row * 24)
     end
 
     -- CSV: which table
@@ -202,14 +204,14 @@ local function CreateExport()
     export.csvFrame:SetSize(750, 24)
     local cx = 0
     for _, id in ipairs(ns.Export.CSV) do
-        local b = W.Button(export.csvFrame, CSV_LABEL[id] or id, 88, function()
+        local b = W.Button(export.csvFrame, CSV_LABEL[id] or id, 72, function()
             export.dataset = id
             Render()
         end)
         b.id = id
         b:SetHeight(20)
         b:SetPoint("TOPLEFT", cx, 0)
-        cx = cx + 91
+        cx = cx + 75
         export.csvButtons[#export.csvButtons + 1] = b
     end
 

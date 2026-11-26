@@ -226,8 +226,8 @@ L["Open WorldCodex"] = "WorldCodex öffnen"
 L["Your item database in the game: where every item drops, how often, how sure that number is, and what it is worth."] =
     "Deine Gegenstandsdatenbank im Spiel: wo jeder Gegenstand droppt, wie oft, wie sicher diese Zahl ist und was er wert ist."
 L["1. Just play"] = "1. Einfach spielen"
-L["WorldCodex records what you loot and gather, quest rewards, vendors, recipes and auction prices. You don't have to set anything up. The more you play, the surer the drop rates get."] =
-    "WorldCodex merkt sich, was du plünderst und sammelst, dazu Questbelohnungen, Händler, Rezepte und Auktionspreise. Du musst nichts einrichten. Je mehr du spielst, desto sicherer werden die Dropraten."
+L["WorldCodex records what you loot and gather, quest rewards, vendors, trainers, recipes and auction prices. You don't have to set anything up. The more you play, the surer the drop rates get."] =
+    "WorldCodex merkt sich, was du plünderst und sammelst, dazu Questbelohnungen, Händler, Lehrer, Rezepte und Auktionspreise. Du musst nichts einrichten. Je mehr du spielst, desto sicherer werden die Dropraten."
 L["2. Look at tooltips"] = "2. Tooltips ansehen"
 L["Items show where they drop, how often, and their price. Mobs, chests, herbs and veins show what they drop. Hold Shift over an item for more."] =
     "Gegenstände zeigen, wo und wie oft sie droppen, und ihren Preis. Gegner, Truhen, Kräuter und Erzvorkommen zeigen ihre Beute. Halte über einem Gegenstand Umschalt gedrückt, um mehr zu sehen."
@@ -601,3 +601,20 @@ L["Other NPCs"] = "Andere NPCs"
 L["normal"] = "normal"
 L["once"] = "einmalig"
 L["not done"] = "nicht erledigt"
+-- trainers (Trainers.lua)
+L["Trainers"] = "Lehrer"
+L["%s trainer"] = "%s-Lehrer"
+L["Pet trainer"] = "Tierausbilder"
+L["%d training points"] = "%d Trainingspunkte"
+L["free"] = "kostenlos"
+L["Spell or recipe"] = "Zauber oder Rezept"
+L["Skill"] = "Fertigkeit"
+L["Cost"] = "Kosten"
+L["Creates"] = "Erzeugt"
+L["Taught by"] = "Gelehrt von"
+L["Teaches"] = "Lehrt"
+L["teaches %d"] = "lehrt %d"
+-- spells (Spells.lua, UI/PageSpell.lua)
+L["Spell"] = "Zauber"
+L["No trainer has been seen teaching this spell yet."] = "Noch kein Lehrer wurde gesehen, der diesen Zauber lehrt."
+L["Spells"] = "Zauber"

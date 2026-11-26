@@ -313,11 +313,23 @@ def snapshot_from_saved(db: dict) -> dict:
     recipes = {}
     for key, r in (db.get("recipes") or {}).items():
         if isinstance(r, dict):
-            recipes[_lua_number_key(key)] = {k: r.get(k) for k in ("pf", "mn", "mx", "r")}
+            recipes[_lua_number_key(key)] = {k: r.get(k) for k in ("pf", "mn", "mx", "r", "sid")}
+    spells = {}
+    for spell_id, r in (db.get("spells") or {}).items():
+        if isinstance(r, dict) and r.get("n"):
+            spells[_lua_number_key(spell_id)] = {k: r.get(k) for k in ("n", "rk", "ic", "ds")}
+    trainers = {}
+    for npc, r in (db.get("trainers") or {}).items():
+        if isinstance(r, dict) and isinstance(r.get("s"), dict) and r["s"]:
+            services = {
+                _lua_number_key(k): {f: e.get(f) for f in _TRAINER_SERVICE_FIELDS}
+                for k, e in r["s"].items() if isinstance(e, dict)
+            }
+            trainers[_lua_number_key(npc)] = {k: r.get(k) for k in ("nm", "tt", "pf", "cls")} | {"s": services}
     return {
         "v": 1, "uid": meta.get("uid"), "rev": meta.get("rev", 0), "t": meta.get("saved", 0),
         "lc": meta.get("locale"), "src": src, "vd": vendors, "rc": recipes, "np": npcs,
-        "ah": ah, "ahd": ahd, "it": items, "rl": meta.get("realm"), "fc": meta.get("faction"),
+        "tr": trainers, "sl": spells, "ah": ah, "ahd": ahd, "it": items, "rl": meta.get("realm"), "fc": meta.get("faction"),
     }
 
 
@@ -558,6 +570,86 @@ def _clean_recipes(rc) -> dict:
         mn = _num(r.get("mn"), 100) or 1
         mx = _num(r.get("mx"), 100) or 1
         out[key] = {"pf": pf, "mn": mn, "mx": max(mn, mx), "r": reagents}
+        sid = _lua_number_key(r.get("sid"))
+        if isinstance(sid, int) and not isinstance(sid, bool) and 1 <= sid <= 10**8:
+            out[key]["sid"] = sid
+    return out
+
+
+def _clean_spells(sl) -> dict:
+    """Spells in the uploader's language (the addon's Spells.lua, Store CleanSpells)."""
+    out = {}
+    if not isinstance(sl, dict):
+        return out
+    for spell_id, r in list(sl.items())[:20000]:
+        spell_id = _lua_number_key(spell_id)
+        if not (isinstance(spell_id, int) and not isinstance(spell_id, bool) and 0 < spell_id < 10**8):
+            continue
+        if not isinstance(r, dict) or not isinstance(r.get("n"), str) or not r["n"]:
+            continue
+        entry = {"n": r["n"].replace("|", "")[:80]}
+        if isinstance(r.get("rk"), str) and r["rk"]:
+            entry["rk"] = r["rk"].replace("|", "")[:80]
+        icon = _lua_number_key(r.get("ic"))
+        if isinstance(icon, int) and not isinstance(icon, bool) and 1 <= icon <= 10**9:
+            entry["ic"] = icon
+        if isinstance(r.get("ds"), str) and r["ds"]:
+            entry["ds"] = r["ds"][:1000].replace("|", "")
+        out[spell_id] = entry
+    return out
+
+
+_TRAINER_KINDS = {"class", "profession", "pet", "general"}
+_TRAINER_SERVICE_FIELDS = ("c", "lv", "sk", "it", "nm")
+
+
+def _clean_trainers(tr) -> dict:
+    """What trainers teach (the addon's Trainers.lua, Store CleanTrainers): services keyed by spell id,
+    or "n:<name>" when the client gave no spell id."""
+    out = {}
+    if not isinstance(tr, dict):
+        return out
+    for npc, r in list(tr.items())[:5000]:
+        npc = _lua_number_key(npc)
+        if not (isinstance(npc, int) and not isinstance(npc, bool) and 0 < npc < 10**8):
+            continue
+        if not isinstance(r, dict) or not isinstance(r.get("s"), dict):
+            continue
+        services = {}
+        for key, e in list(r["s"].items())[:400]:
+            key = _lua_number_key(key)
+            if isinstance(key, int) and not isinstance(key, bool) and 0 < key < 10**8:
+                named = False
+            elif isinstance(key, str) and len(key) <= 80 and key.startswith("n:") and len(key) > 2:
+                key, named = key.replace("|", ""), True
+            else:
+                continue
+            if not isinstance(e, dict):
+                continue
+            entry = {}
+            for f, maxv in (("c", 1e9), ("lv", 100), ("sk", 1000)):
+                v = _num(e.get(f), maxv)
+                if v is not None:
+                    entry[f] = int(v)
+            item = _lua_number_key(e.get("it"))
+            if isinstance(item, int) and not isinstance(item, bool) and 1 <= item <= 10**8:
+                entry["it"] = item
+            name = e.get("nm")
+            if named and isinstance(name, str) and name:
+                entry["nm"] = name.replace("|", "")[:80]
+            services[key] = entry
+        if not services:
+            continue
+        kind = r.get("tt") if r.get("tt") in _TRAINER_KINDS else "general"
+        pf, cls = r.get("pf"), r.get("cls")
+        name = r.get("nm")
+        out[npc] = {
+            "nm": name.replace("|", "")[:80] if isinstance(name, str) else None,
+            "tt": kind,
+            "pf": pf if kind == "profession" and isinstance(pf, str) and re.fullmatch(r"[A-Za-z0-9]{1,24}", pf) else None,
+            "cls": cls if kind == "class" and isinstance(cls, str) and re.fullmatch(r"[A-Z]{1,20}", cls) else None,
+            "s": services,
+        }
     return out
 
 
@@ -660,6 +752,8 @@ def validate(snap: dict) -> dict | None:
     out["vd"] = _clean_vendors(snap.get("vd"))
     out["rc"] = _clean_recipes(snap.get("rc"))
     out["np"] = _clean_npcs(snap.get("np"))
+    out["tr"] = _clean_trainers(snap.get("tr"))
+    out["sl"] = _clean_spells(snap.get("sl"))
     out["ah"] = _clean_prices(snap.get("ah"))
     out["ahd"] = _clean_history(snap.get("ahd"))
     out["it"] = _clean_items(snap.get("it"))
@@ -743,7 +837,7 @@ def _overlay(state: dict, delta: dict) -> dict:
     each one holds that installation's lifetime totals)."""
     out = dict(state)
     out["rev"], out["base"] = max(state["rev"], delta["rev"]), None
-    for field in ("src", "vd", "rc", "np", "it"):
+    for field in ("src", "vd", "rc", "np", "tr", "sl", "it"):
         merged = dict(state.get(field) or {})
         merged.update(delta.get(field) or {})
         out[field] = merged
@@ -924,11 +1018,13 @@ def merge(snaps: list[dict], z_limit: float = 5.0, max_cells: int = 32, min_n: i
         "sources": sources,
         "vendors": vendors,
         "recipes": _merge_recipes(latest.values()),
+        "trainers": _merge_trainers(latest.values()),
         "npcs": npcs,
         "names": _localized_names(sources, locale_names, vendors, vendor_names, npcs, npc_names),
         # website only (not written to the addon's Lua file)
         "prices": _merge_prices(latest.values()),
         "items": _merge_items(latest.values()),
+        "spells": _merge_spells(latest.values()),
     }
     return dataset, rejected
 
@@ -1088,15 +1184,96 @@ def _merge_recipes(snaps) -> dict:
     acc: dict[Any, dict] = {}
     for s in snaps:
         for key, r in (s.get("rc") or {}).items():
-            a = acc.setdefault(key, {"pf": {}, "r": {}, "mn": None, "mx": None})
+            a = acc.setdefault(key, {"pf": {}, "r": {}, "mn": None, "mx": None, "sid": {}})
             _count(a["pf"], r["pf"])
+            _count(a["sid"], r.get("sid"))
             _count(a["r"], json.dumps(sorted(r["r"].items())))
             a["mn"] = r["mn"] if a["mn"] is None else min(a["mn"], r["mn"])
             a["mx"] = r["mx"] if a["mx"] is None else max(a["mx"], r["mx"])
-    return {
-        key: {"pf": _vote(a["pf"]), "mn": a["mn"], "mx": a["mx"], "r": {int(i): n for i, n in json.loads(_vote(a["r"]))}}
-        for key, a in acc.items()
-    }
+    out = {}
+    for key, a in acc.items():
+        out[key] = {"pf": _vote(a["pf"]), "mn": a["mn"], "mx": a["mx"], "r": {int(i): n for i, n in json.loads(_vote(a["r"]))}}
+        if a["sid"]:
+            out[key]["sid"] = _vote(a["sid"])  # the recipe's spell id
+    return out
+
+
+def _merge_spells(snaps) -> dict:
+    """spells[id] = {"n": English name when known, "names": {locale: name}, "rk": {locale: rank},
+    "ds": {locale: description}, "ic": icon}, each by vote over the uploads of that language."""
+    acc: dict[int, dict] = {}
+    for s in snaps:
+        loc = s.get("lc") or "?"
+        for spell_id, r in (s.get("sl") or {}).items():
+            a = acc.setdefault(spell_id, {"names": {}, "rk": {}, "ds": {}, "ic": {}})
+            _count(a["names"].setdefault(loc, {}), r["n"])
+            if r.get("rk"):
+                _count(a["rk"].setdefault(loc, {}), r["rk"])
+            if r.get("ds"):
+                _count(a["ds"].setdefault(loc, {}), r["ds"])
+            _count(a["ic"], r.get("ic"))
+    out = {}
+    for spell_id, a in acc.items():
+        names = {loc: _vote(c) for loc, c in a["names"].items() if loc != "?"}
+        en = names.get("enUS") or names.get("enGB")
+        if not en:
+            totals: dict = {}
+            for counter in a["names"].values():
+                for name, n in counter.items():
+                    totals[name] = totals.get(name, 0) + n
+            en = _vote(totals)
+        entry = {"n": en}
+        if names:
+            entry["names"] = names
+        for f in ("rk", "ds"):
+            per = {loc: _vote(c) for loc, c in a[f].items() if loc != "?"}
+            if per:
+                entry[f] = per
+        if a["ic"]:
+            entry["ic"] = _vote(a["ic"])
+        out[spell_id] = entry
+    return out
+
+
+def _merge_trainers(snaps) -> dict:
+    """Union of every service each trainer was seen teaching. Kind, profession and class by vote (a
+    class or profession beats "general", which a window without a readable title gives); cost: the
+    highest seen (reputation discounts only lower it); required level and skill: the highest seen."""
+    acc: dict[int, dict] = {}
+    for s in snaps:
+        for npc, r in (s.get("tr") or {}).items():
+            a = acc.setdefault(npc, {"nm": {}, "tt": {}, "pf": {}, "cls": {}, "s": {}})
+            _count(a["nm"], r.get("nm"))
+            _count(a["tt"], r["tt"])
+            _count(a["pf"], r.get("pf"))
+            _count(a["cls"], r.get("cls"))
+            for key, e in r["s"].items():
+                ae = a["s"].setdefault(key, {"it": {}, "nm": {}})
+                for f in ("c", "lv", "sk"):
+                    if e.get(f) is not None:
+                        ae[f] = max(ae.get(f, e[f]), e[f])
+                _count(ae["it"], e.get("it"))
+                _count(ae["nm"], e.get("nm"))
+    out = {}
+    for npc, a in acc.items():
+        specific = {k: n for k, n in a["tt"].items() if k != "general"}
+        kind = _vote(specific or a["tt"])
+        services = {}
+        for key, ae in a["s"].items():
+            entry = {f: ae[f] for f in ("c", "lv", "sk") if f in ae}
+            for f in ("it", "nm"):
+                if ae[f]:
+                    entry[f] = _vote(ae[f])
+            services[key] = entry
+        entry = {"tt": kind, "s": services}
+        if a["nm"]:
+            entry["nm"] = _vote(a["nm"])
+        if kind == "profession" and a["pf"]:
+            entry["pf"] = _vote(a["pf"])
+        if kind == "class" and a["cls"]:
+            entry["cls"] = _vote(a["cls"])
+        out[npc] = entry
+    return out
 
 
 def _localized_names(sources: dict, locale_names: dict, vendors: dict, vendor_names: dict,
@@ -1266,8 +1443,8 @@ def _item_index(sources: dict) -> tuple[dict, dict]:
 
 
 CHUNK_CONSTANTS = 20000  # scalars per Lua function; LuaJIT allows 65536 constants, WoW's Lua 5.1 more
-_CHUNKED = ("contributors", "sources", "vendors", "recipes", "npcs", "ix")
-_WEB_ONLY = ("prices", "items")  # in the JSON for the website, not in the addon's Lua file
+_CHUNKED = ("contributors", "sources", "vendors", "recipes", "trainers", "npcs", "ix")
+_WEB_ONLY = ("prices", "items", "spells")  # in the JSON for the website, not in the addon's Lua file
 _PUT = (
     "local function put(section, sub, part)\n"
     "    local t = WorldCodex_CommunityData[section]\n"
@@ -1390,9 +1567,11 @@ def write_manifest(dataset: dict, lua_path: Path, path: Path) -> dict:
         "pairs": sum(len(s["l"]) for s in dataset["sources"].values()),
         "vendors": len(dataset.get("vendors") or {}),
         "recipes": len(dataset.get("recipes") or {}),
+        "trainers": len(dataset.get("trainers") or {}),
         "npcs": len(dataset.get("npcs") or {}),
         "items": len(dataset.get("items") or {}),
         "markets": len(dataset.get("prices") or {}),
+        "spells": len(dataset.get("spells") or {}),
     }
     path.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return manifest

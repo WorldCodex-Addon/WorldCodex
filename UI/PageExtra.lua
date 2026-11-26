@@ -1,8 +1,8 @@
 local _, ns = ...
 
 -- Page tabs for facts that are not drop rates: who sells an item, what it is crafted from and used
--- for, and which quests need or start it; on NPC pages what the NPC sells and which quests it
--- starts or ends.
+-- for, which trainers teach its recipe and which quests need or start it; on NPC pages what the NPC
+-- sells or teaches and which quests it starts or ends.
 local X = {}
 ns.PageExtra = X
 
@@ -48,6 +48,18 @@ local function ProductName(product)
     return spell and (ns.SpellName(spell) or ("enchant " .. spell)) or tostring(product)
 end
 
+-- Trainer cost: coin, or training points at pet trainers.
+local function TrainCost(e, pet)
+    if not e.c then return "-" end
+    if pet then return string.format(L["%d training points"], e.c) end
+    return e.c > 0 and ns.Coin(e.c) or L["free"]
+end
+
+local function TrainZone(npc)
+    local z = ns.Lookup.Zones(npc, 1)[1]
+    return z and z.name or ""
+end
+
 local function QuestName(key) return tostring((ns.Store.SourceMeta(key))) end
 
 -- ---------------------------------------------------------------- columns
@@ -84,6 +96,59 @@ local COLUMNS = {
         { key = "pf", title = L["Profession"], w = 80, text = function(r) return r.pfName end },
         { key = "reagents", title = L["Reagents"], w = 140, text = function(r) return r.reagents end },
     },
+    teaches = {
+        {
+            key = "name",
+            title = L["Spell or recipe"],
+            w = 180,
+            text = function(r) return r.name end,
+            icon = function(r) return r.icon end,
+        },
+        {
+            key = "lv",
+            title = L["Level"],
+            w = 45,
+            align = "RIGHT",
+            text = function(r) return r.lv > 0 and tostring(r.lv) or "" end,
+        },
+        {
+            key = "sk",
+            title = L["Skill"],
+            w = 45,
+            align = "RIGHT",
+            text = function(r) return r.sk > 0 and tostring(r.sk) or "" end,
+        },
+        { key = "c", title = L["Cost"], w = 110, align = "RIGHT", text = function(r) return r.costText end },
+    },
+    taught = {
+        { key = "name", title = L["Trainer"], w = 140, text = function(r) return r.name end },
+        { key = "zone", title = L["Zone"], w = 110, text = function(r) return r.zone end },
+        {
+            key = "sk",
+            title = L["Skill"],
+            w = 45,
+            align = "RIGHT",
+            text = function(r) return r.sk > 0 and tostring(r.sk) or "" end,
+        },
+        { key = "c", title = L["Cost"], w = 100, align = "RIGHT", text = function(r) return r.costText end },
+    },
+    reagents = {
+        {
+            key = "name",
+            title = L["Item"],
+            w = 220,
+            text = function(r) return ns.ItemName(r.openId, true) end,
+            icon = function(r) return ns.ItemIcon and ns.ItemIcon(r.openId) end,
+        },
+        { key = "role", title = L["Role"], w = 120, text = function(r) return r.roleText end },
+        {
+            key = "count",
+            title = L["Qty"],
+            w = 60,
+            align = "RIGHT",
+            text = function(r) return r.countText end,
+        },
+    },
     quest = {
         { key = "name", title = L["Quest"], w = 220, text = function(r) return r.name end },
         { key = "role", title = L["Role"], w = 160, text = function(r) return r.roleText end },
@@ -100,6 +165,7 @@ local COLUMNS = {
 for colset, cols in pairs(COLUMNS) do
     ns.PageItem.Columns[colset] = cols
     ns.PageSource.Columns[colset] = cols
+    ns.PageSpell.Columns[colset] = cols
 end
 -- item pages show drop tables of processing sources with the source page's columns
 ns.PageItem.Columns.items = ns.PageSource.Columns.items
@@ -140,6 +206,14 @@ local function VendorRows(itemId)
 end
 
 local function RecipeRow(product, r, role, itemId)
+    -- the item's own recipe opens the recipe's spell page; recipes using the item open their product
+    local sid = role == "made" and ns.Crafting.SpellOf(product) or nil
+    local openType = type(product) == "number" and "item" or nil
+    if sid then
+        openType = "spell"
+    elseif role == "made" then
+        openType = nil
+    end
     return {
         extra = true,
         key = product,
@@ -151,8 +225,8 @@ local function RecipeRow(product, r, role, itemId)
         pfName = ns.Crafting.ProfessionName(r.pf),
         reagents = Reagents(r),
         name = ProductName(product),
-        openType = type(product) == "number" and "item" or nil,
-        openId = type(product) == "number" and product or nil,
+        openType = openType,
+        openId = sid or (openType and product) or nil,
         detail = string.format(
             "%s\n%s: %s\n%s: %s%s",
             ProductName(product),
@@ -174,6 +248,93 @@ local function RecipeRows(itemId)
         local r = ns.Crafting.Get(product)
         if r then rows[#rows + 1] = RecipeRow(product, r, "reagent", itemId) end
     end
+    return rows
+end
+
+-- Trainers teaching a recipe (item page: `byItem`, the created item id) or a spell (spell page).
+local function TrainerRows(id, bySpell)
+    local rows = {}
+    local T = ns.Trainers
+    if not T then return rows end
+    local itemId = not bySpell and id or nil
+    local list = {}
+    if bySpell then
+        for npc in pairs(T.ForSpell(id)) do
+            list[npc] = id
+        end
+    else
+        list = T.ForItem(id)
+    end
+    for npc, service in pairs(list) do
+        local info = T.Get(npc)
+        local e = info and info.s[service]
+        if e then
+            local name = ns.Npcs and ns.Npcs.Name(npc) or ("NPC " .. npc)
+            local cost = TrainCost(e, info.tt == "pet")
+            rows[#rows + 1] = {
+                extra = true,
+                key = npc,
+                itemId = itemId or ("spell:" .. id),
+                name = name,
+                zone = TrainZone(npc),
+                sk = e.sk or 0,
+                c = e.c or 0,
+                costText = cost,
+                openType = "source",
+                openId = npc,
+                detail = string.format(
+                    "%s\n%s\n%s: %s%s",
+                    name,
+                    T.Label(info),
+                    L["Cost"],
+                    cost,
+                    e.sk and string.format("\n%s: %d", L["Skill"], e.sk) or ""
+                ),
+            }
+        end
+    end
+    table.sort(rows, function(a, b) return a.c < b.c end)
+    return rows
+end
+
+-- What a trainer teaches (NPC page).
+local function TeachRows(key)
+    local rows = {}
+    local info = ns.Trainers and ns.Trainers.Get(key)
+    if not info then return rows end
+    local pet = info.tt == "pet"
+    for service, e in pairs(info.s) do
+        local spellId = type(service) == "number" and service or nil
+        local name = spellId and ns.Spells and ns.Spells.Title(spellId) or ns.Trainers.ServiceName(service, e)
+        local cost = TrainCost(e, pet)
+        local lines = { name, L["Cost"] .. ": " .. cost }
+        if e.lv then lines[#lines + 1] = string.format("%s: %d", L["Level"], e.lv) end
+        if e.sk then lines[#lines + 1] = string.format("%s: %d", L["Skill"], e.sk) end
+        if e.it then lines[#lines + 1] = L["Creates"] .. ": " .. ns.ItemName(e.it, true) end
+        rows[#rows + 1] = {
+            extra = true,
+            key = key,
+            -- row identity only: never an item id (spells and items share number ranges)
+            itemId = "service:" .. tostring(service),
+            name = name,
+            icon = spellId and ns.Spells and ns.Spells.Info(spellId).icon
+                or (e.it and ns.ItemIcon and ns.ItemIcon(e.it)),
+            lv = e.lv or 0,
+            sk = e.sk or 0,
+            c = e.c or 0,
+            costText = cost,
+            spellId = spellId,
+            -- spell page (which links the item a recipe creates); without a spell id the item, else nothing
+            openType = spellId and "spell" or (e.it and "item") or nil,
+            openId = spellId or e.it,
+            detail = table.concat(lines, "\n"),
+        }
+    end
+    table.sort(rows, function(a, b)
+        if a.sk ~= b.sk then return a.sk < b.sk end
+        if a.lv ~= b.lv then return a.lv < b.lv end
+        return a.name < b.name
+    end)
     return rows
 end
 
@@ -230,6 +391,73 @@ local function ProcessTabs(itemId, layer, tabs)
     end
 end
 
+-- What a recipe spell makes and needs (spell page): the created item, then the reagents.
+local function SpellRecipeRows(spellId)
+    local rows = {}
+    local product = ns.Crafting and ns.Crafting.ForSpell(spellId)
+    local r = product and ns.Crafting.Get(product)
+    local made
+    if type(product) == "number" then
+        made = product
+    else
+        -- known only from a trainer: the item the service creates
+        for npc in pairs(ns.Trainers and ns.Trainers.ForSpell(spellId) or {}) do
+            local info = ns.Trainers.Get(npc)
+            local e = info and info.s[spellId]
+            if e and e.it then
+                made = e.it
+                break
+            end
+        end
+    end
+    if made then
+        local count = r
+            and ((r.mx or 1) > (r.mn or 1) and string.format("%d-%d", r.mn or 1, r.mx) or tostring(r.mn or 1))
+        rows[#rows + 1] = {
+            extra = true,
+            key = spellId,
+            itemId = made,
+            roleText = L["Creates"],
+            countText = count or "",
+            openType = "item",
+            openId = made,
+        }
+    end
+    if r then
+        local reagents = {}
+        for id, n in pairs(r.r or {}) do
+            reagents[#reagents + 1] = {
+                extra = true,
+                key = spellId,
+                itemId = id,
+                roleText = L["Reagent"],
+                countText = tostring(n),
+                openType = "item",
+                openId = id,
+            }
+        end
+        table.sort(reagents, function(a, b) return ns.ItemName(a.openId) < ns.ItemName(b.openId) end)
+        for _, row in ipairs(reagents) do
+            rows[#rows + 1] = row
+        end
+    end
+    return rows, r
+end
+
+-- Spell page tabs (UI/PageSpell.lua calls this).
+function X.SpellTabs(spellId)
+    local tabs = {}
+    local taught = TrainerRows(spellId, true)
+    if #taught > 0 then
+        tabs[#tabs + 1] = { id = "taught", label = L["Taught by"], count = #taught, table = "taught", rows = taught }
+    end
+    local recipe = SpellRecipeRows(spellId)
+    if #recipe > 0 then
+        tabs[#tabs + 1] = { id = "recipe", label = L["Recipe"], count = #recipe, table = "reagents", rows = recipe }
+    end
+    return tabs
+end
+
 -- Extra item tabs (UI/PageItem.lua calls this).
 function ns.ItemTabs(itemId, layer)
     local tabs = {}
@@ -241,6 +469,10 @@ function ns.ItemTabs(itemId, layer)
     local recipes = RecipeRows(itemId)
     if #recipes > 0 then
         tabs[#tabs + 1] = { id = "crafting", label = L["Crafting"], count = #recipes, table = "recipe", rows = recipes }
+    end
+    local taught = TrainerRows(itemId)
+    if #taught > 0 then
+        tabs[#tabs + 1] = { id = "taught", label = L["Taught by"], count = #taught, table = "taught", rows = taught }
     end
     local objectives = ObjectiveRows(itemId)
     if #objectives > 0 then
@@ -274,6 +506,10 @@ function ns.SourceTabs(key)
         table.sort(rows, function(a, b) return a.name < b.name end)
         tabs[#tabs + 1] = { id = "sells", label = L["Sells"], count = #rows, table = "sells", rows = rows }
     end
+    local teaches = TeachRows(key)
+    if #teaches > 0 then
+        tabs[#tabs + 1] = { id = "teaches", label = L["Teaches"], count = #teaches, table = "teaches", rows = teaches }
+    end
     if ns.Quests then
         local idx = ns.Quests.Index()
         local rows = {}
@@ -297,6 +533,7 @@ function X.Tooltip(tt, r)
         tt:SetHyperlink("item:" .. r.openId)
         return
     end
+    if r.spellId and pcall(tt.SetHyperlink, tt, "spell:" .. r.spellId) then return end
     for line in tostring(r.detail or r.name or ""):gmatch("[^\n]+") do
         tt:AddLine(line, 1, 1, 1)
     end

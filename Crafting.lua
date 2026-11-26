@@ -1,7 +1,8 @@
 local _, ns = ...
 
 -- Recipes of the professions the player opens: what an item is made from, and what it is used for.
--- db.recipes[productKey] = { pf = profession key, mn = min made, mx = max made, r = { [reagentId] = n }, t }
+-- db.recipes[productKey] = { pf = profession key, mn = min made, mx = max made, r = { [reagentId] = n },
+--                           sid = recipe spell id, t }
 -- productKey is the created item id, or "enchant:<spellId>" for recipes that create no item.
 -- Read through C_TradeSkillUI (WoW Forever has no GetTradeSkill*/GetCraft* functions, see the in-game
 -- API dump in .claude/skills/wow-forever-api): all recipes of the open profession window, including
@@ -50,7 +51,7 @@ local function Db() return ns.db.recipes end
 
 -- Same recipe facts (profession, amount made, reagents)?
 local function SameRecipe(a, b)
-    if a.pf ~= b.pf or a.mn ~= b.mn or a.mx ~= b.mx or type(a.r) ~= "table" then return false end
+    if a.pf ~= b.pf or a.mn ~= b.mn or a.mx ~= b.mx or a.sid ~= b.sid or type(a.r) ~= "table" then return false end
     for id, n in pairs(b.r) do
         if a.r[id] ~= n then return false end
     end
@@ -133,11 +134,12 @@ function Cr.ReadRecipe(recipeID, pf)
     if not next(reagents) then return nil end
     local mn = math.max(1, tonumber(schematic.quantityMin) or 1)
     local mx = math.max(mn, tonumber(schematic.quantityMax) or mn)
-    return product, { pf = pf or "other", mn = mn, mx = mx, r = reagents }
+    return product, { pf = pf or "other", mn = mn, mx = mx, r = reagents, sid = recipeID }
 end
 
 -- Stores a recipe; true when its facts changed (then it is news for the next share string).
 local function Save(product, rec)
+    if rec.sid and ns.Spells then ns.Spells.Record(rec.sid) end
     local old = Db()[product]
     rec.t, rec.rv = ns.time(), old and old.rv
     Db()[product] = rec
@@ -229,25 +231,42 @@ function Cr.Get(product)
     return nil
 end
 
-local using -- reagentId -> { [productKey] = true }
+local using, bySpell -- reagentId -> { [productKey] = true }; recipe spell id -> productKey
 Cr.indexDirty = true
 
-function Cr.Using(reagentId)
-    if Cr.indexDirty or not using then
-        using = {}
-        for _, l in ipairs(Cr.Layers()) do
-            for product, r in pairs(l.t) do
-                if type(r) == "table" and type(r.r) == "table" then
-                    for id in pairs(r.r) do
-                        using[id] = using[id] or {}
-                        using[id][product] = true
-                    end
+local function Rebuild()
+    using, bySpell = {}, {}
+    for _, l in ipairs(Cr.Layers()) do
+        for product, r in pairs(l.t) do
+            if type(r) == "table" and type(r.r) == "table" then
+                for id in pairs(r.r) do
+                    using[id] = using[id] or {}
+                    using[id][product] = true
                 end
+                local sid = tonumber(r.sid) or tonumber(tostring(product):match("^enchant:(%d+)$"))
+                if sid and bySpell[sid] == nil then bySpell[sid] = product end
             end
         end
-        Cr.indexDirty = false
     end
+    Cr.indexDirty = false
+end
+
+function Cr.Using(reagentId)
+    if Cr.indexDirty or not using then Rebuild() end
     return using[reagentId] or {}
+end
+
+-- Product key of a recipe spell (nil when unknown).
+function Cr.ForSpell(spellId)
+    if Cr.indexDirty or not bySpell then Rebuild() end
+    return bySpell[spellId]
+end
+
+-- Recipe spell id of a product key (nil when unknown).
+function Cr.SpellOf(product)
+    local r = Cr.Get(product)
+    local sid = r and tonumber(r.sid)
+    return sid or tonumber(tostring(product):match("^enchant:(%d+)$"))
 end
 
 ns.On("DATA_CHANGED", function(what)

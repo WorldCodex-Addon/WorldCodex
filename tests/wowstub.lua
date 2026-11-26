@@ -166,6 +166,52 @@ function Stub.Install(env)
     }
     G.LOOT_ITEM_SELF = "You receive loot: %s."
     G.LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d."
+    -- Trainer window: env.trainer = { kind = "general"|"profession"|"pet", title = "<Warrior Trainer>",
+    -- services = { { name, type = "available"|"unavailable"|"used", level, sub, spell, item, cost,
+    -- skill = { name, rank }, line } } }, filtered like the client by env.trainerFilters.
+    env.trainerFilters = env.trainerFilters or { available = true, unavailable = true, used = false }
+    local function Visible()
+        local out = {}
+        for _, sv in ipairs(env.trainer and env.trainer.services or {}) do
+            if env.trainerFilters[sv.type or "available"] then out[#out + 1] = sv end
+        end
+        return out
+    end
+    local TRAINER_TYPES = { general = 0, profession = 2, pet = 3 }
+    G.C_Trainer =
+        { GetTrainerType = function() return TRAINER_TYPES[env.trainer and env.trainer.kind or "general"] end }
+    G.IsTradeskillTrainer = function() return env.trainer ~= nil and env.trainer.kind == "profession" end
+    G.GetNumTrainerServices = function() return #Visible() end
+    G.GetTrainerServiceInfo = function(i)
+        local sv = Visible()[i]
+        if not sv then return nil end
+        return sv.name, sv.type or "available", 136243, sv.level or 1, sv.sub, sv.category
+    end
+    G.GetTrainerServiceCost = function(i)
+        local sv = Visible()[i]
+        return sv and sv.cost or 0, env.trainer and env.trainer.kind == "profession"
+    end
+    G.GetTrainerServiceSkillReq = function(i)
+        local sv = Visible()[i]
+        if sv and sv.skill then return sv.skill[1], sv.skill[2], true end
+        return nil
+    end
+    G.GetTrainerServiceSkillLine = function(i)
+        local sv = Visible()[i]
+        return sv and sv.line or nil
+    end
+    G.GetTrainerServiceItemLink = function(i)
+        local sv = Visible()[i]
+        return sv and sv.item and ("|cffffffff|Hitem:" .. sv.item .. "::::|h[x]|h|r") or nil
+    end
+    G.GetTrainerServiceTypeFilter = function(f) return env.trainerFilters[f] and true or false end
+    G.SetTrainerServiceTypeFilter = function(f, on) env.trainerFilters[f] = on and true or false end
+    G.UnitClass = function(unit)
+        if unit == "player" then return "Warrior", env.class or "WARRIOR", 1 end
+        return nil
+    end
+    G.LOCALIZED_CLASS_NAMES_MALE = { WARRIOR = "Warrior", MAGE = "Mage" }
+    G.LOCALIZED_CLASS_NAMES_FEMALE = { WARRIOR = "Warrior", MAGE = "Mage" }
     G.C_ChatInfo = {
         RegisterAddonMessagePrefix = function() end,
         SendAddonMessage = function(prefix, msg, channel, target)

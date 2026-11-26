@@ -259,6 +259,58 @@ class MergeTests(unittest.TestCase):
         self.assertEqual((r["mn"], r["mx"]), (1, 2))
         self.assertEqual(data["recipes"]["enchant:7418"]["pf"], "enchanting")
 
+    def test_trainer_merge(self):
+        a = self.snap("aaaa0001", 10, 2)
+        a["tr"] = {914: {"nm": "Frang", "tt": "class", "cls": "WARRIOR",
+                         "s": {6673: {"c": 90, "lv": 6}, "n:Rend (Rank 1)": {"c": 10, "nm": "Rend|r"}}},
+                   3004: {"tt": "profession", "pf": "tailoring", "s": {7623: {"c": 50, "sk": 30, "it": 2996}}}}
+        b = self.snap("bbbb0002", 10, 2)
+        b["tr"] = {914: {"nm": "Frang", "tt": "general", "s": {6673: {"c": 100, "lv": 6}, 845: {"c": 2000, "lv": 20}}},
+                   "x": {"tt": "class", "s": {1: {}}}, 5: {"tt": "class", "s": {}}}
+        snaps = [merge.validate({**x, "v": 1}) for x in (a, b)]
+        self.assertNotIn("x", snaps[1]["tr"])
+        self.assertNotIn(5, snaps[1]["tr"], "no services")
+        self.assertEqual(snaps[0]["tr"][914]["s"]["n:Rend (Rank 1)"]["nm"], "Rendr")
+        data, _ = merge.merge(snaps)
+        t = data["trainers"][914]
+        self.assertEqual(t["tt"], "class", "a class beats general")
+        self.assertEqual(t["cls"], "WARRIOR")
+        self.assertEqual(set(t["s"]), {6673, 845, "n:Rend (Rank 1)"}, "union of services")
+        self.assertEqual(t["s"][6673]["c"], 100, "highest cost")
+        p = data["trainers"][3004]
+        self.assertEqual((p["pf"], p["s"][7623]["sk"], p["s"][7623]["it"]), ("tailoring", 30, 2996))
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "C.lua"
+            merge.write_lua(data, out)
+            back = merge.read_lua(out.read_text(encoding="utf-8"))
+        self.assertEqual(back["trainers"][914]["s"][6673]["c"], 100)
+        self.assertEqual(back["trainers"][914]["s"]["n:Rend (Rank 1)"]["c"], 10)
+
+    def test_spell_merge(self):
+        a = self.snap("aaaa0001", 10, 2)
+        a["lc"] = "enUS"
+        a["sl"] = {772: {"n": "Rend", "rk": "Rank 2", "ic": 132155, "ds": "Wounds|r the target."}}
+        a["rc"] = {2996: {"pf": "tailoring", "mn": 1, "mx": 1, "r": {100: 2}, "sid": 7623}}
+        b = self.snap("bbbb0002", 10, 2)
+        b["lc"] = "deDE"
+        b["sl"] = {772: {"n": "Verwunden", "rk": "Rang 2", "ic": 132155}, "x": {"n": "bad"}, 5: {"rk": "no name"}}
+        snaps = [merge.validate({**x, "v": 1}) for x in (a, b)]
+        self.assertEqual(set(snaps[1]["sl"]), {772})
+        data, _ = merge.merge(snaps)
+        sp = data["spells"][772]
+        self.assertEqual(sp["n"], "Rend")
+        self.assertEqual(sp["names"], {"enUS": "Rend", "deDE": "Verwunden"})
+        self.assertEqual(sp["rk"]["deDE"], "Rang 2")
+        self.assertEqual(sp["ds"], {"enUS": "Woundsr the target."})
+        self.assertEqual(sp["ic"], 132155)
+        self.assertEqual(data["recipes"][2996]["sid"], 7623)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "C.lua"
+            merge.write_lua(data, out)
+            text = out.read_text(encoding="utf-8")
+        self.assertNotIn("Verwunden", text, "spells are website only")
+        self.assertEqual(merge.read_lua(text)["recipes"][2996]["sid"], 7623)
+
     def test_locale_names(self):
         en = self.snap("aaaa0001", 10, 2)
         en["lc"] = "enUS"

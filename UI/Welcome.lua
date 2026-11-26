@@ -22,7 +22,7 @@ function We.Sections()
     local function add(title, text) out[#out + 1] = { title = title, text = text } end
     add(
         L["1. Just play"],
-        L["WorldCodex records what you loot and gather, quest rewards, vendors, recipes and auction prices. You don't have to set anything up. The more you play, the surer the drop rates get."]
+        L["WorldCodex records what you loot and gather, quest rewards, vendors, trainers, recipes and auction prices. You don't have to set anything up. The more you play, the surer the drop rates get."]
     )
     add(
         L["2. Look at tooltips"],

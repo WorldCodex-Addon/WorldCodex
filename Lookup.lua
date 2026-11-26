@@ -475,6 +475,24 @@ function Lk.Search(q, limit)
             }
         end
     end
+    -- spells trainers teach and recipe spells (Spells.lua)
+    if ns.Spells then
+        local rec = ns.db.spells or {}
+        for spellId in pairs(ns.Spells.AllIds()) do
+            local name = (rec[spellId] and rec[spellId].n) or ns.SpellName(spellId)
+            local s = name and Score(name:lower(), q) or 0
+            if s > 0 then
+                out[#out + 1] = {
+                    type = "spell",
+                    id = spellId,
+                    name = name,
+                    recipe = ns.Crafting and ns.Crafting.ForSpell(spellId) ~= nil,
+                    score = s,
+                    n = 0,
+                }
+            end
+        end
+    end
     table.sort(out, function(a, b)
         if a.score ~= b.score then return a.score > b.score end
         if a.n ~= b.n then return a.n > b.n end

@@ -75,7 +75,9 @@ function R.Header(key, layer)
     local sub = { ns.KIND_LABEL[m.kind] or tostring(m.kind) }
     local roles = {}
     for role in pairs(m.roles or {}) do
-        if ROLE_LABEL[role] then roles[#roles + 1] = ROLE_LABEL[role] end
+        local label = ROLE_LABEL[role]
+        if role == "trainer" and ns.Trainers then label = ns.Trainers.Label(ns.Trainers.Get(key)) end
+        if label then roles[#roles + 1] = label end
     end
     table.sort(roles)
     if #roles > 0 then sub[1] = table.concat(roles, ", ") end
@@ -208,6 +210,8 @@ end
 
 function R.Open(r)
     if r.openType then return P.Show({ type = r.openType, id = r.openId }) end
+    -- extra rows (vendors, trainers, quests, ...) open only what they name; their itemId is no item
+    if r.extra then return false end
     P.Show({ type = "item", id = r.itemId })
 end
 

@@ -2838,6 +2838,296 @@ end)
 
 -- ---------------------------------------------------------------- export
 
+-- ---------------------------------------------------------------- trainers
+
+local TRAINER = "Creature-0-1-0-1-914-0000BBBB22"
+
+-- Trainer window APIs that are tables in the client (the stub's globals stay plain functions);
+-- restored afterwards so other tests keep their own C_TooltipInfo.
+local function WithTrainerApi(fn)
+    local oldTip, oldEnum = _G.C_TooltipInfo, _G.Enum
+    local tip = {}
+    for k, v in pairs(oldTip or {}) do
+        tip[k] = v
+    end
+    tip.GetTrainerService = function(i)
+        local list = {}
+        for _, sv in ipairs(_G.__trainerEnv.trainer.services) do
+            if _G.__trainerEnv.trainerFilters[sv.type or "available"] then list[#list + 1] = sv end
+        end
+        local sv = list[i]
+        return sv and sv.spell and { type = 1, id = sv.spell } or nil
+    end
+    tip.GetUnit = function(unit)
+        local env = _G.__trainerEnv
+        if unit ~= "npc" or not env.trainer then return nil end
+        local lines = { { leftText = "Trainer" } }
+        if env.trainer.title then lines[2] = { leftText = env.trainer.title } end
+        lines[#lines + 1] = { leftText = "Level 40" }
+        return { lines = lines }
+    end
+    local enum = {}
+    for k, v in pairs(oldEnum or {}) do
+        enum[k] = v
+    end
+    enum.TrainerType = { General = 0, TalentsObsolete = 1, Tradeskills = 2, Pet = 3 }
+    enum.TooltipDataType = { Item = 0, Spell = 1, Unit = 2 }
+    _G.C_TooltipInfo, _G.Enum = tip, enum
+    local okRun, err = pcall(fn)
+    _G.C_TooltipInfo, _G.Enum, _G.__trainerEnv = oldTip, oldEnum, nil
+    if not okRun then error(err, 0) end
+end
+
+local function OpenTrainer(ns, env, trainer)
+    env.trainer = trainer
+    _G.__trainerEnv = env
+    env.units.npc = { guid = TRAINER, name = trainer.npcName or "Frang", level = 40 }
+    ns.Dispatch("TRAINER_SHOW")
+    Advance(ns, 0.3)
+    ns.Dispatch("TRAINER_CLOSED")
+end
+
+test("class trainers: every service is read with all filters on, and the filters are put back", function()
+    WithTrainerApi(function()
+        local env = NpcEnv()
+        local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+        OpenTrainer(ns, env, {
+            kind = "general",
+            title = "Warrior Trainer",
+            services = {
+                { name = "Battle Shout", type = "available", level = 6, spell = 6673, cost = 100 },
+                { name = "Rend", type = "used", level = 4, spell = 772, cost = 10 },
+                { name = "Cleave", type = "unavailable", level = 20, spell = 845, cost = 2000 },
+            },
+        })
+        local rec = ns.db.trainers[914]
+        ok(rec, "trainer recorded")
+        eq(rec.tt, "class")
+        eq(rec.cls, "WARRIOR")
+        eq(rec.s[6673].c, 100)
+        eq(rec.s[6673].lv, 6)
+        eq(rec.s[845].c, 2000)
+        ok(rec.s[772], "known spells are read too (filter opened)")
+        eq(env.trainerFilters.used, false, "player's filter put back")
+        eq(env.trainerFilters.available, true)
+        eq(ns.Trainers.Label(ns.Trainers.Get(914)), "Warrior trainer")
+        ok(ns.db.npcs[914].f.trainer, "the npc has the trainer role")
+        -- a riding trainer's title does not name the class
+        OpenTrainer(ns, env, {
+            kind = "general",
+            title = "Riding Trainer",
+            services = { { name = "Apprentice Riding", spell = 33388, cost = 40000, level = 20 } },
+        })
+        eq(ns.db.trainers[914].tt, "general")
+        eq(ns.db.trainers[914].cls, nil)
+    end)
+end)
+
+test("profession trainers: profession, skill requirement, recipe product and the pages", function()
+    WithTrainerApi(function()
+        local env = NpcEnv()
+        env.spells = { [3908] = "Tailoring", [7623] = "Brown Linen Robe" }
+        local ns = Stub.Boot(ROOT, env)
+        OpenTrainer(ns, env, {
+            kind = "profession",
+            title = "Tailoring Trainer",
+            services = {
+                { name = "Apprentice Tailoring", spell = 3908, cost = 10, level = 5, line = "Tailoring" },
+                {
+                    name = "Brown Linen Robe",
+                    spell = 7623,
+                    cost = 50,
+                    skill = { "Tailoring", 30 },
+                    item = 2996,
+                    line = "Tailoring",
+                },
+                -- no spell id from the tooltip: kept by name
+                { name = "Linen Belt", sub = "Rank 1", cost = 75, line = "Tailoring" },
+            },
+        })
+        local rec = ns.db.trainers[914]
+        eq(rec.tt, "profession")
+        eq(rec.pf, "tailoring")
+        eq(rec.s[7623].sk, 30)
+        eq(rec.s[7623].it, 2996)
+        eq(rec.s[3908].sk, nil)
+        eq(rec.s["n:Linen Belt (Rank 1)"].nm, "Linen Belt")
+        eq(ns.Trainers.ForItem(2996)[914], 7623)
+        local before = rec.rv
+        OpenTrainer(ns, env, env.trainer)
+        eq(rec.rv, before, "the same window again is no news")
+        ns.Page.Show({ type = "item", id = 2996 })
+        local tabs = table.concat(ns.Page._State().tabs, ",")
+        ok(tabs:find("taught"), tabs)
+        ns.Page.Show({ type = "item", id = 2996, tab = "taught" })
+        eq(ns.Page._State().rows[1].key, 914)
+        ns.Page.Show({ type = "source", id = 914 })
+        tabs = table.concat(ns.Page._State().tabs, ",")
+        ok(tabs:find("teaches"), tabs)
+        ns.Page.Show({ type = "source", id = 914, tab = "teaches" })
+        local rows = ns.Page._State().rows
+        eq(#rows, 3)
+        local byName = {}
+        for _, r in ipairs(rows) do
+            byName[r.name] = r
+        end
+        -- the profession itself is a spell, never an item (spell 3908 is no item 3908)
+        local prof = byName["Tailoring"]
+        ok(prof, "spell name from the client")
+        eq(prof.openType, "spell")
+        eq(prof.openId, 3908)
+        ns.PageSource.Open(prof)
+        eq(ns.Page._State().type, "spell")
+        eq(ns.Page._State().id, 3908)
+        eq(ns.Page._State().title, "Tailoring")
+        ok(table.concat(ns.Page._State().tabs, ","):find("taught"))
+        -- a service without spell id opens nothing
+        ns.Page.Show({ type = "source", id = 914, tab = "teaches" })
+        for _, r in ipairs(ns.Page._State().rows) do
+            if r.name == "Linen Belt" then
+                eq(r.openType, nil)
+                eq(ns.PageSource.Open(r), false)
+            end
+        end
+        eq(ns.Page._State().type, "source", "still on the trainer page")
+        -- a recipe spell: taught by, and the item it creates
+        ns.Page.Show({ type = "spell", id = 7623, tab = "recipe" })
+        local st = ns.Page._State()
+        ok(table.concat(st.tabs, ","):find("recipe"), table.concat(st.tabs, ","))
+        eq(st.rows[1].openType, "item")
+        eq(st.rows[1].openId, 2996)
+        eq(ns.db.spells[7623].n, "Brown Linen Robe", "spells taught are recorded")
+        -- search finds spells
+        local found
+        for _, e in ipairs(ns.Lookup.Search("brown linen")) do
+            if e.type == "spell" and e.id == 7623 then found = true end
+        end
+        ok(found, "spell in search results")
+    end)
+end)
+
+test("spells: recorded with rank and description, loaded later when the client has not cached them", function()
+    local env = Env()
+    local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+    local old = _G.C_Spell
+    local cached = { [6673] = true }
+    local requested = {}
+    _G.C_Spell = {
+        GetSpellInfo = function(id)
+            if id == 6673 or id == 772 then
+                return { name = id == 6673 and "Battle Shout" or "Rend", iconID = 132333 }
+            end
+            return nil
+        end,
+        GetSpellSubtext = function(id) return id == 772 and "Rank 2" or nil end,
+        GetSpellDescription = function(id) return cached[id] and ("Desc " .. id) or "" end,
+        IsSpellDataCached = function(id) return cached[id] == true end,
+        RequestLoadSpellData = function(id) requested[id] = true end,
+    }
+    local okRun, err = pcall(function()
+        ok(ns.Spells.Record(6673))
+        eq(ns.db.spells[6673].n, "Battle Shout")
+        eq(ns.db.spells[6673].ds, "Desc 6673")
+        eq(ns.db.spells[6673].ic, 132333)
+        eq(ns.Spells.Record(6673), false, "nothing new")
+        eq(ns.Spells.Record(772), false, "not cached: asked the client first")
+        ok(requested[772])
+        eq(ns.db.spells[772], nil)
+        cached[772] = true
+        ns.Dispatch("SPELL_DATA_LOAD_RESULT", 772, true)
+        eq(ns.db.spells[772].rk, "Rank 2")
+        eq(ns.Spells.Title(772), "Rend (Rank 2)")
+        -- shared through the export string, recipes keep their spell id
+        ns.db.recipes[2996] = { pf = "tailoring", mn = 1, mx = 1, r = { [100] = 2 }, sid = 7623 }
+        local clean = ns.Store.ValidateSnapshot(ns.Codec.Decode(ns.Report.ExportString()))
+        eq(clean.sl[772].rk, "Rank 2")
+        eq(clean.sl[6673].ds, "Desc 6673")
+        eq(clean.rc[2996].sid, 7623)
+        ns.Crafting.indexDirty = true
+        eq(ns.Crafting.ForSpell(7623), 2996)
+        eq(ns.Crafting.SpellOf(2996), 7623)
+        local bad = ns.Store.ValidateSnapshot({
+            v = 1,
+            uid = "x1",
+            src = {},
+            sl = { x = { n = "a" }, [5] = { n = "A|r", ds = "x|cffy", ic = -1 }, [6] = { rk = "r" } },
+        })
+        eq(bad.sl.x, nil)
+        eq(bad.sl[6], nil, "no name")
+        eq(bad.sl[5].n, "Ar")
+        eq(bad.sl[5].ds, "xcffy")
+        eq(bad.sl[5].ic, nil)
+    end)
+    _G.C_Spell = old
+    if not okRun then error(err, 0) end
+end)
+
+test("trainers are shared through the export string, validated and imported", function()
+    WithTrainerApi(function()
+        local env = NpcEnv()
+        local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+        OpenTrainer(ns, env, {
+            kind = "general",
+            title = "Warrior Trainer",
+            services = { { name = "Battle Shout", level = 6, spell = 6673, cost = 100 } },
+        })
+        local str = ns.Report.ExportString()
+        local clean = ns.Store.ValidateSnapshot(ns.Codec.Decode(str))
+        eq(clean.tr[914].tt, "class")
+        eq(clean.tr[914].cls, "WARRIOR")
+        eq(clean.tr[914].s[6673].c, 100)
+        eq(ns.Store.Snapshot({ minN = 3, ah = true }).tr, nil, "not in guild sync")
+        ns.db.meta.uid = "someoneelse00000"
+        ns.db.trainers = {}
+        ok(ns.Report.Import(str))
+        ns.Trainers.indexDirty = true
+        local info = ns.Trainers.Get(914)
+        eq(info.cls, "WARRIOR")
+        eq(info.s[6673].lv, 6)
+        local bad = ns.Store.ValidateSnapshot({
+            v = 1,
+            uid = "x1",
+            src = {},
+            tr = {
+                x = { s = { [1] = { c = 1 } } },
+                [5] = {
+                    tt = "bogus",
+                    cls = "WARRIOR",
+                    s = { [-1] = { c = 1 }, ["n:Foo|r"] = { c = -5, lv = 3, nm = "Foo|cff" }, [77] = { c = 9, it = 0 } },
+                },
+                [6] = { tt = "class", s = {} },
+            },
+        })
+        eq(bad.tr.x, nil)
+        eq(bad.tr[6], nil, "no services")
+        eq(bad.tr[5].tt, "general")
+        eq(bad.tr[5].cls, nil)
+        eq(bad.tr[5].s[-1], nil)
+        eq(bad.tr[5].s["n:Foor"].c, nil, "negative cost")
+        eq(bad.tr[5].s["n:Foor"].nm, "Foocff")
+        eq(bad.tr[5].s[77].it, nil)
+    end)
+end)
+
+test("community trainers are shown and indexed by recipe item", function()
+    local env = Env()
+    env.community = {
+        generated = 1,
+        contributors = {},
+        sources = {},
+        trainers = {
+            [3004] = { nm = "Tailor", tt = "profession", pf = "tailoring", s = { [7623] = { c = 50, it = 2996 } } },
+        },
+    }
+    local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+    eq(ns.Trainers.ForItem(2996)[3004], 7623)
+    eq(ns.Trainers.Get(3004).pf, "tailoring")
+    ns.db.settings.useCommunity = false
+    ns.Fire("SETTINGS_CHANGED")
+    eq(ns.Trainers.Get(3004), nil, "community switched off")
+    eq(next(ns.Trainers.ForItem(2996)), nil)
+end)
+
 local function SeedEverything(ns)
     local rec = SeedKobold(ns, 40, 8)
     rec.loot[100].h = { [1] = 6, [2] = 2 }
@@ -2852,6 +3142,8 @@ local function SeedEverything(ns)
         i = { [765] = { p = 40, st = 5, x = { [200] = 2 } } },
     }
     ns.db.recipes[2996] = { pf = "tailoring", mn = 1, mx = 1, r = { [100] = 2 } }
+    ns.db.spells[6673] = { n = "Battle Shout", rk = "Rank 1", ic = 132333, ds = "Shout." }
+    ns.db.trainers[914] = { nm = "Frang", tt = "class", cls = "WARRIOR", s = { [6673] = { c = 100, lv = 6 } } }
     ns.db.npcs[6740] = { nm = "Innkeeper Allison", sp = { [1429] = { [5050] = 3 } }, lv = { 30, 30 }, r = "friendly" }
     ns.Prices.Commit(100, { { p = 10, q = 5 }, { p = 12, q = 5 } }, ns.time() - 86400)
     ns.Prices.Commit(100, { { p = 11, q = 4 } }, ns.time())
@@ -2933,6 +3225,8 @@ test("CSV export has a table for every kind of data", function()
         history = "item_id,item_name,day",
         vendors = "npc_id,vendor_name",
         recipes = "product,product_name",
+        trainers = "npc_id,trainer_name",
+        spells = "spell_id,name",
         npcs = "npc_key,name",
     }
     for _, id in ipairs(ns.Export.CSV) do

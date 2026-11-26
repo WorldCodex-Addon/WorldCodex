@@ -198,7 +198,7 @@ local function Normalize(db)
     -- from before rv existed count as changed now; the current revision may already be uploaded.
     db.meta.sealed = db.meta.sealed or db.meta.rev
     if not db.meta.rvInit then
-        for _, section in ipairs({ db.sources, db.items, db.ah, db.vendors, db.npcs, db.recipes }) do
+        for _, section in ipairs({ db.sources, db.items, db.ah, db.vendors, db.npcs, db.recipes, db.trainers }) do
             if type(section) == "table" then
                 for _, r in pairs(section) do
                     if type(r) == "table" and r.rv == nil then r.rv = db.meta.rev end
@@ -1403,7 +1403,33 @@ function Store.Snapshot(opts)
         rc = {}
         for _, key in ipairs(Keys(DB.recipes)) do
             local r = DB.recipes[key]
-            if r and Changed(r) then rc[key] = { pf = r.pf, mn = r.mn, mx = r.mx, r = r.r } end
+            if r and Changed(r) then rc[key] = { pf = r.pf, mn = r.mn, mx = r.mx, r = r.r, sid = r.sid } end
+            Yield()
+        end
+    end
+    -- spells in the recorder's language (Spells.lua), for the website: export strings only
+    local sl
+    if opts.spells and type(DB.spells) == "table" then
+        sl = {}
+        for _, id in ipairs(Keys(DB.spells)) do
+            local r = DB.spells[id]
+            if r and r.n and Changed(r) then sl[id] = { n = r.n, rk = r.rk, ic = r.ic, ds = r.ds } end
+            Yield()
+        end
+    end
+    -- what trainers teach (Trainers.lua), like vendors only in export strings
+    local tr
+    if opts.trainers and type(DB.trainers) == "table" then
+        tr = {}
+        for _, npc in ipairs(Keys(DB.trainers)) do
+            local r = DB.trainers[npc]
+            if r and type(r.s) == "table" and next(r.s) and Changed(r) then
+                local s = {}
+                for key, e in pairs(r.s) do
+                    s[key] = { c = e.c, lv = e.lv, sk = e.sk, it = e.it, nm = e.nm }
+                end
+                tr[npc] = { nm = r.nm, tt = r.tt, pf = r.pf, cls = r.cls, s = s }
+            end
             Yield()
         end
     end
@@ -1439,6 +1465,8 @@ function Store.Snapshot(opts)
         vd = vd,
         rc = rc,
         np = np,
+        tr = tr,
+        sl = sl,
         it = it,
         -- auction prices only mean something per realm and faction
         rl = ah and DB.meta.realm or nil,
@@ -1566,6 +1594,58 @@ local function CleanNpcs(np)
     return out
 end
 
+-- Spells (Spells.lua): name, rank, icon, description in the uploader's language.
+local function CleanSpells(sl)
+    local out, count = {}, 0
+    for id, r in pairs(sl) do
+        count = count + 1
+        if count > 20000 then break end
+        local okId = type(id) == "number" and id > 0 and id < 1e8 and id == math.floor(id)
+        if okId and type(r) == "table" and Str(r.n) then
+            local icon = Num(r.ic, 1e9)
+            local ds = type(r.ds) == "string" and r.ds:sub(1, 1000):gsub("|", "") or nil
+            out[id] = { n = Str(r.n), rk = Str(r.rk), ic = icon and icon >= 1 and icon or nil, ds = ds }
+        end
+    end
+    return out
+end
+
+local TRAINER_KINDS = { class = true, profession = true, pet = true, general = true }
+
+local function CleanTrainers(tr)
+    local out, count = {}, 0
+    for npc, r in pairs(tr) do
+        count = count + 1
+        if count > 5000 then break end
+        if type(npc) == "number" and NpcKey(npc) and type(r) == "table" and type(r.s) == "table" then
+            local s, c = {}, 0
+            for key, e in pairs(r.s) do
+                c = c + 1
+                if c > 400 then break end
+                local okKey = (type(key) == "number" and key > 0 and key < 1e8 and key == math.floor(key))
+                    or (type(key) == "string" and #key <= 80 and key:match("^n:.") ~= nil)
+                if okKey and type(e) == "table" then
+                    local it = Num(e.it, 1e8)
+                    s[type(key) == "string" and key:gsub("|", "") or key] = {
+                        c = Num(e.c, 1e9),
+                        lv = Num(e.lv, 100),
+                        sk = Num(e.sk, 1000),
+                        it = it and it >= 1 and it or nil,
+                        nm = type(key) == "string" and Str(e.nm) or nil,
+                    }
+                end
+            end
+            if next(s) then
+                local tt = TRAINER_KINDS[r.tt] and r.tt or "general"
+                local pf = tt == "profession" and type(r.pf) == "string" and #r.pf <= 24 and r.pf:match("^%w+$")
+                local cls = tt == "class" and type(r.cls) == "string" and #r.cls <= 20 and r.cls:match("^%u+$")
+                out[npc] = { nm = Str(r.nm), tt = tt, pf = pf or nil, cls = cls or nil, s = s }
+            end
+        end
+    end
+    return out
+end
+
 local EFFECT_TRIGGERS = { use = true, equip = true, proc = true, learn = true }
 
 -- Item details (Items.lua) from an untrusted snapshot, copied onto `out`.
@@ -1638,7 +1718,8 @@ local function CleanRecipes(rc)
         local pf = type(r) == "table" and type(r.pf) == "string" and r.pf:match("^%w+$") and #r.pf <= 24 and r.pf
         if okKey and reagents and pf then
             local mn, mx = Num(r.mn, 100) or 1, Num(r.mx, 100) or 1
-            out[key] = { pf = pf, mn = mn, mx = math.max(mn, mx), r = reagents }
+            local sid = Num(r.sid, 1e8)
+            out[key] = { pf = pf, mn = mn, mx = math.max(mn, mx), r = reagents, sid = sid and sid >= 1 and sid or nil }
         end
     end
     return out
@@ -1773,6 +1854,8 @@ function Store.ValidateSnapshot(s)
     if type(s.vd) == "table" then out.vd = CleanVendors(s.vd) end
     if type(s.rc) == "table" then out.rc = CleanRecipes(s.rc) end
     if type(s.np) == "table" then out.np = CleanNpcs(s.np) end
+    if type(s.tr) == "table" then out.tr = CleanTrainers(s.tr) end
+    if type(s.sl) == "table" then out.sl = CleanSpells(s.sl) end
     if type(s.it) == "table" then out.it = CleanItems(s.it) end
     if type(s.rl) == "string" and #s.rl <= 40 and not s.rl:find("|", 1, true) then out.rl = s.rl end
     if s.fc == "Alliance" or s.fc == "Horde" then out.fc = s.fc end
@@ -1793,7 +1876,7 @@ function Store.ImportPeer(peerId, snap, label)
         if not (old and old.uid == clean.uid and (old.rev or 0) >= clean.base) then
             return false, L["this string only holds changes; import a full share string from that player first"]
         end
-        for _, f in ipairs({ "src", "ah", "vd", "rc", "np" }) do
+        for _, f in ipairs({ "src", "ah", "vd", "rc", "np", "tr" }) do
             if clean[f] and next(clean[f]) then
                 old[f] = type(old[f]) == "table" and old[f] or {}
                 for k, v in pairs(clean[f]) do
@@ -1817,6 +1900,7 @@ function Store.ImportPeer(peerId, snap, label)
         vd = clean.vd,
         rc = clean.rc,
         np = clean.np,
+        tr = clean.tr,
     }
     Store.indexDirty = true
     ns.Fire("DATA_CHANGED", "peer", peerId)

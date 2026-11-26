@@ -191,6 +191,8 @@ end
 
 function R.Open(r)
     if r.openType then return P.Show({ type = r.openType, id = r.openId }) end
+    -- extra rows (vendors, trainers, quests, ...) open only what they name; their itemId is no item
+    if r.extra then return false end
     P.Show({ type = "source", id = r.key })
 end
 

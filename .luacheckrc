@@ -56,6 +56,11 @@ read_globals = {
     "GetCraftDisplaySkillLine", "GetNumCrafts", "GetCraftInfo", "GetCraftItemLink", "GetCraftRecipeLink",
     "GetCraftNumReagents", "GetCraftReagentInfo", "GetCraftReagentItemLink",
     "LOOT_ITEM_PUSHED_SELF", "LOOT_ITEM_PUSHED_SELF_MULTIPLE",
+    -- trainers (Trainers.lua)
+    "C_Trainer", "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceCost", "GetTrainerServiceSkillReq",
+    "GetTrainerServiceSkillLine", "GetTrainerServiceItemLink", "GetTrainerServiceTypeFilter",
+    "SetTrainerServiceTypeFilter", "IsTradeskillTrainer", "UnitClass", "LocalizedClassList",
+    "LOCALIZED_CLASS_NAMES_MALE", "LOCALIZED_CLASS_NAMES_FEMALE",
     -- namespaces
     "C_AddOns", "C_AuctionHouse", "C_ChatInfo", "C_Container", "C_CurrencyInfo", "C_EncodingUtil", "C_Item", "C_Map", "C_Spell", "C_SuperTrack", "C_TradeSkillUI", "Enum",
     "CreateVector2D", "UiMapPoint", "BreakUpLargeNumbers",

@@ -2,7 +2,7 @@ local _, ns = ...
 
 -- Export of everything WorldCodex collected (the player's own data; guild and community data are
 -- not the player's and stay out): drops, quests, items, auction prices and their history,
--- vendors, recipes, NPCs, map names and personal statistics. As Lua, JSON (for the website and
+-- vendors, recipes, trainers, spells, NPCs, map names and personal statistics. As Lua, JSON (for the website and
 -- other tools) or CSV, one table per kind of data. The compact share string for uploads lives in
 -- Report.ExportString.
 local Ex = {}
@@ -21,12 +21,14 @@ Ex.SECTIONS = {
     { id = "history", label = L["Price history"] },
     { id = "vendors", label = L["Vendors"] },
     { id = "recipes", label = L["Recipes"] },
+    { id = "trainers", label = L["Trainers"] },
+    { id = "spells", label = L["Spells"] },
     { id = "npcs", label = L["NPCs"] },
     { id = "maps", label = L["Maps"] },
     { id = "personal", label = L["Sessions & goals"] },
 }
 
-Ex.CSV = { "drops", "quests", "items", "prices", "history", "vendors", "recipes", "npcs" }
+Ex.CSV = { "drops", "quests", "items", "prices", "history", "vendors", "recipes", "trainers", "spells", "npcs" }
 
 -- Deep copy without `rv` (the revision of a record's last change: bookkeeping for share strings).
 local function Copy(v)
@@ -165,6 +167,11 @@ local function ItemIds()
             end
         end
     end
+    for _, t in pairs(ns.db.trainers or {}) do
+        for _, e in pairs(t.s or {}) do
+            add(e.it)
+        end
+    end
     for product, r in pairs(ns.db.recipes or {}) do
         add(product)
         for id in pairs(r.r or {}) do
@@ -230,6 +237,8 @@ local BUILD = {
     history = function() return Prices(true) end,
     vendors = function() return Copy(ns.db.vendors or {}) end,
     recipes = function() return Copy(ns.db.recipes or {}) end,
+    trainers = function() return Copy(ns.db.trainers or {}) end,
+    spells = function() return Copy(ns.db.spells or {}) end,
     npcs = function() return Copy(ns.db.npcs or {}) end,
     maps = function() return Copy(ns.db.maps) end,
     personal = Personal,
@@ -478,6 +487,46 @@ CSV.recipes = function()
         for _, id in ipairs(Sorted(r.r or {}, true)) do
             Row(lines, product, name, r.pf, r.mn, r.mx, id, ns.ItemName(id), r.r[id])
         end
+    end
+    return table.concat(lines, "\n")
+end
+
+CSV.trainers = function()
+    local lines = {
+        "npc_id,trainer_name,kind,profession,class,service,service_name,cost_copper,level_req,skill_req,item_id,last_seen",
+    }
+    local trainers = ns.db.trainers or {}
+    for _, npc in ipairs(Sorted(trainers, true)) do
+        local t = trainers[npc]
+        for _, key in ipairs(Sorted(t.s or {}, true)) do
+            local e = t.s[key]
+            Row(
+                lines,
+                npc,
+                t.nm,
+                t.tt,
+                t.pf,
+                t.cls,
+                key,
+                ns.Trainers.ServiceName(key, e),
+                e.c,
+                e.lv,
+                e.sk,
+                e.it,
+                t.t and ns.date("%Y-%m-%d", t.t)
+            )
+        end
+    end
+    return table.concat(lines, "\n")
+end
+
+CSV.spells = function()
+    local lines = { "spell_id,name,rank,icon,description,recipe_product,last_seen" }
+    local spells = ns.db.spells or {}
+    for _, id in ipairs(Sorted(spells, true)) do
+        local r = spells[id]
+        local product = ns.Crafting and ns.Crafting.ForSpell(id)
+        Row(lines, id, r.n, r.rk, r.ic, r.ds, product, r.t and ns.date("%Y-%m-%d", r.t))
     end
     return table.concat(lines, "\n")
 end

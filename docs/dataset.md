@@ -103,9 +103,11 @@ the same data with numeric keys.
   "sources": { "<key>": Source },
   "vendors": { "<npcId>": Vendor },
   "recipes": { "<productKey>": Recipe },
+  "trainers": { "<npcId>": Trainer },
   "npcs":    { "<npcId | go:objectId>": Npc },
   "prices":  { "<realm>|<faction>": { "<itemId>": { "last": Price, "days": { "<day>": Day } } } },  // JSON only
   "items":   { "<itemId>": Item },                                                             // JSON only
+  "spells":  { "<spellId>": Spell },                                                           // JSON only
   "names":   { "<locale>": { "<key>": "localized name" } }
 }
 ```
@@ -165,12 +167,35 @@ Drop rate = `d / n`, for items listed in `qb` `d / qb[itemId]`. The addon shows 
 Key: the created item id, or `enchant:<spellId>` for recipes that create no item.
 
 ```jsonc
-{ "pf": "tailoring", "mn": 1, "mx": 1, "r": { "<reagentItemId>": 2 } }
+{ "pf": "tailoring", "mn": 1, "mx": 1, "r": { "<reagentItemId>": 2 }, "sid": 7623 }
 ```
+
+`sid` is the recipe's spell id (missing in uploads of older addon versions; for `enchant:` keys it is
+the key's own id).
 
 `pf` is a profession key that does not depend on the client language: `alchemy blacksmithing enchanting
 engineering leatherworking tailoring cooking firstaid smelting jewelcrafting inscription poisons`. The
 reagents are the set most uploads agree on.
+
+### Trainer
+
+What a trainer teaches, read from the trainer window with every filter on (so also what the player
+already knows or cannot learn yet). Services are keyed by spell id, or `n:<name>` (name in the
+uploader's language, with the rank in brackets) when the client gave no spell id.
+
+```jsonc
+{ "nm": "Frang", "tt": "class", "cls": "WARRIOR",
+  "s": { "<spellId | n:name>": { "c": 100, "lv": 6, "sk": 30, "it": 2996, "nm": "only for n: keys" } } }
+```
+
+| Field | Meaning |
+|---|---|
+| `tt` | Kind: `class` (class trainer of `cls`), `profession` (profession `pf`), `pet` (pet trainer), `general` (riding, weapons, portals, ...). A class trainer is recognised by its title naming the player's class; the merge prefers `class`/`profession` over `general` |
+| `pf` | Profession key: the recipe keys above plus `herbalism mining skinning fishing` (`mining` is the trainer's skill; its recipes are `smelting`) |
+| `cls` | Class file name: `WARRIOR MAGE PALADIN ...` |
+| `c` | Cost in copper, the highest seen (reputation discounts only lower it); training points at pet trainers |
+| `lv`, `sk` | Required level and profession skill, the highest seen |
+| `it` | Item the recipe creates |
 
 ### Npc
 
@@ -189,6 +214,18 @@ The position is always the player's, because addons cannot read other units' pos
 | `lv`, `cl` | Level range and classification |
 | `r` | `hostile`, `neutral` or `friendly` |
 | `f` | Roles: `gossip vendor quest trainer taxi banker` |
+
+### Spell (website only)
+
+Spells trainers teach and recipe spells, as the uploaders' clients show them. Like items, the addon
+reads its own client's spells and does not need them in its Lua file.
+
+```jsonc
+{ "n": "Rend", "names": { "enUS": "Rend", "deDE": "Verwunden" }, "rk": { "deDE": "Rang 2" },
+  "ds": { "enUS": "Wounds the target ..." }, "ic": 132155 }
+```
+
+`n` is the English name when one was uploaded; `rk` (rank), `ds` (description) and `names` are per locale.
 
 ### Prices and items (website only)
 
@@ -237,7 +274,7 @@ them in its own language.
 
 ```lua
 WorldCodex_CommunityData = { version = 1, schema = 2, generated = …, packed = 1, pairs = …,
-                          contributors = {}, sources = {}, vendors = {}, recipes = {}, npcs = {}, names = {},
+                          contributors = {}, sources = {}, vendors = {}, recipes = {}, trainers = {}, npcs = {}, names = {},
                           ix = {}, qi = {} }
 local function put(section, sub, part) … end
 put("sources", nil, function() return {
@@ -263,7 +300,7 @@ addon's memory small:
 - **Item index** `ix[itemId]`: the serialized list of source keys that drop the item, so the addon finds
   the sources of an item without decoding every record. `qi` = items that have quest sample sizes
   (`qb`) somewhere, `pairs` = number of source/item pairs.
-- Vendors, recipes, NPCs and names are plain Lua tables.
+- Vendors, recipes, trainers, NPCs and names are plain Lua tables.
 - One record per line, no indentation: small, and a new release still diffs record by record.
 
 Every section is split into functions of at most about 20,000 values each, because Lua limits the
@@ -278,7 +315,7 @@ tables are larger than LuaJIT's).
 ## Manifest
 
 `--manifest manifest.json` writes `{schema, generated, sha256, bytes, contributors, sources, pairs,
-vendors, recipes, npcs, items, markets}`. The release workflow (`.github/workflows/data.yml`) downloads `Community.lua`
+vendors, recipes, trainers, npcs, items, markets, spells}`. The release workflow (`.github/workflows/data.yml`) downloads `Community.lua`
 and `manifest.json` from the website and checks four things before it publishes anything:
 - the sha256 of the file matches the manifest;
 - the schema is known;

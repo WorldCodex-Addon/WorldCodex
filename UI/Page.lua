@@ -795,11 +795,12 @@ local function Same(a, b) return a and b and a.type == b.type and a.id == b.id e
 local function SectionOf(entry)
     if entry.type == "list" then return entry.id end
     if entry.type == "item" then return section == "ah" and "ah" or "items" end
-    if entry.type == "source" then return "sources" end
+    if entry.type == "source" or entry.type == "spell" then return "sources" end
     return entry.type
 end
 
--- entry = { type = "item" | "source" | "list" | "compare", id = itemId | sourceKey | list id, tab = }
+-- entry = { type = "item" | "source" | "spell" | "list" | "compare", id = itemId | sourceKey | spellId | list id,
+--           tab = }
 function P.Show(entry, noHistory)
     if not entry or entry.id == nil or not P.types[entry.type] then return false end
     if not ns.db then return false end
@@ -909,6 +910,8 @@ local function RunSearch()
             local label
             if e.type == "item" then
                 label = ns.ItemName(e.id, true)
+            elseif e.type == "spell" then
+                label = tostring(e.name) .. " |cff888888(" .. (e.recipe and L["Recipe"] or L["Spell"]) .. ")|r"
             else
                 label = tostring(e.name) .. " |cff888888(" .. (ns.KIND_LABEL[e.kind] or tostring(e.kind)) .. ")|r"
             end
@@ -931,8 +934,8 @@ local function Pick(e)
     f.resultsFrame:Hide()
     f.search:SetText("")
     f.search:ClearFocus()
-    if e.type == "item" then
-        P.Show({ type = "item", id = e.id })
+    if e.type == "item" or e.type == "spell" then
+        P.Show({ type = e.type, id = e.id })
     else
         P.Show({ type = "source", id = e.key })
     end

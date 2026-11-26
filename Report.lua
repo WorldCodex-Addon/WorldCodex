@@ -508,6 +508,14 @@ function R.SourceFacts(key)
     elseif m.zones[1] then
         overview[#overview + 1] = { label = L["Location"], value = m.zones[1].name } -- instance: no position
     end
+    local trainer = ns.Trainers and ns.Trainers.Get(key)
+    if trainer then
+        local n = 0
+        for _ in pairs(trainer.s) do
+            n = n + 1
+        end
+        overview[#overview + 1] = { label = ns.Trainers.Label(trainer), value = string.format(L["teaches %d"], n) }
+    end
     if #overview > 0 then facts.sections[#facts.sections + 1] = { title = L["Overview"], rows = overview } end
 
     local drops = {}
@@ -743,6 +751,8 @@ function R.ExportString(full)
         vendors = true,
         recipes = true,
         npcs = true,
+        trainers = true,
+        spells = true,
         items = true,
         questBases = true,
         since = base,
@@ -756,6 +766,7 @@ function R.ExportString(full)
         prices = Count(snap.ah),
         vendors = Count(snap.vd),
         npcs = Count(snap.np),
+        trainers = Count(snap.tr),
         bytes = #text,
     }
     -- this revision is published now: the next change opens a new one (Store.Mark)

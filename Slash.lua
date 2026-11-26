@@ -13,9 +13,9 @@ local HELP = {
     "/worldcodex session [end] - current farming session",
     "/worldcodex ah [all|scan|stop|auto on|off|<item>] - auction house scanning",
     "/worldcodex sync [on|off|now] - guild/group sharing status",
-    "/worldcodex export [string|lua|json|csv [drops|quests|items|prices|history|vendors|recipes|npcs]] | import",
+    "/worldcodex export [string|lua|json|csv [drops|quests|items|prices|history|vendors|recipes|trainers|spells|npcs]] | import",
     "/worldcodex report | top [n] | kinds | status | kpi",
-    "/worldcodex options | prune | diag [clear|loot|perf|item <id>] | clear confirm",
+    "/worldcodex options | prune | diag [clear|loot|perf|item <id>|trainer] | clear confirm",
 }
 
 local function ItemAndCount(rest)
@@ -168,6 +168,12 @@ local function Diag(arg)
     local itemArg = arg and arg:match("^item%s*(.*)$")
     if itemArg then
         for _, line in ipairs(ns.Items.Diagnose(ns.ItemIdFromLink(itemArg) or tonumber(itemArg))) do
+            ns.Print(line)
+        end
+        return
+    end
+    if arg == "trainer" then
+        for _, line in ipairs(ns.Trainers.Diagnose()) do
             ns.Print(line)
         end
         return
