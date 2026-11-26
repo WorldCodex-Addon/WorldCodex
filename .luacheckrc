@@ -45,6 +45,9 @@ read_globals = {
     "GetQuestID", "GetTitleText", "GetNumQuestRewards", "GetNumQuestChoices", "GetQuestItemLink", "GetQuestItemInfo",
     "QuestIsDaily", "QuestIsWeekly", "IsQuestFlaggedCompleted", "C_QuestLog",
     "GetNumQuestItems",
+    -- item details (Items.lua)
+    "GetItemInfoInstant", "GetItemSpell", "GetInventoryItemLink", "GetInventoryItemID", "DAMAGE_TEMPLATE", "DAMAGE_TEMPLATE_WITH_SCHOOL",
+    "SINGLE_DAMAGE_TEMPLATE", "DURABILITY_TEMPLATE", "SPEED",
     -- merchants and professions
     "C_MerchantFrame", "GetMerchantNumItems", "GetMerchantItemInfo", "GetMerchantItemLink",
     "GetMerchantItemCostInfo", "GetMerchantItemCostItem",

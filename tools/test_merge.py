@@ -1,4 +1,6 @@
 """Tests for tools/merge.py: `python3 -m unittest discover -s tools`."""
+import base64
+import json
 import shutil
 import subprocess
 import sys
@@ -502,6 +504,90 @@ class MergeTests(unittest.TestCase):
             self.assertIn('"sha256"', (tmp / "m.json").read_text())
             self.assertIn("WorldCodex_CommunityData", (tmp / "C.lua").read_text())
             self.assertIn('"1234"', (tmp / "d.json").read_text())
+
+    def test_item_details_merge(self):
+        sword = {"n": "Gnoll Sword", "cl": 2, "iv": 13, "du": 45, "un": 1,
+                 "st": {"ITEM_MOD_STRENGTH_SHORT": 3, "ITEM_MOD_DAMAGE_PER_SECOND_SHORT": 5.8, "bad key": 1},
+                 "wd": {1: 5, 2: 10, 3: 2600}, "fx": {1: {1: "equip", 2: "Equip: +10 attack power."}, 2: {1: "x", 2: "y"}}}
+        de = {**sword, "n": "Gnollschwert", "wd": [5, 10, 2600], "fx": [["equip", "Anlegen: +10 Angriffskraft."]]}
+        odd = {**sword, "wd": [5, 11], "du": "x"}
+        snaps = [merge.validate({"v": 1, "uid": u, "rev": 1, "lc": lc, "src": {}, "it": {3000: e}})
+                 for u, lc, e in (("aaaa0001", "enUS", sword), ("bbbb0002", "deDE", de), ("cccc0003", "enUS", odd))]
+        self.assertEqual(snaps[0]["it"][3000]["wd"], [5, 10, 2600])
+        self.assertNotIn("bad key", snaps[0]["it"][3000]["st"])
+        self.assertEqual(snaps[0]["it"][3000]["fx"], [["equip", "Equip: +10 attack power."]], "unknown trigger dropped")
+        self.assertNotIn("du", snaps[2]["it"][3000])
+        item = merge.merge(snaps)[0]["items"][3000]
+        self.assertEqual(item["n"], "Gnoll Sword")
+        self.assertEqual((item["iv"], item["du"], item["un"]), (13, 45, 1))
+        self.assertEqual(item["wd"], [5, 10, 2600], "most common weapon damage")
+        self.assertEqual(item["st"], {"ITEM_MOD_STRENGTH_SHORT": 3, "ITEM_MOD_DAMAGE_PER_SECOND_SHORT": 5.8})
+        self.assertEqual(item["fx"]["deDE"], [["equip", "Anlegen: +10 Angriffskraft."]], "effects per language")
+        self.assertEqual(item["fx"]["enUS"], [["equip", "Equip: +10 attack power."]])
+        saved = merge.parse_saved_variables(
+            'WorldCodexDB = { meta = { uid = "dddd0004", rev = 2 }, sources = {}, items = { [3000] = '
+            '{ n = "Gnoll Sword", dv = 1, wd = { 5, 10, 2600 }, st = { ITEM_MOD_STRENGTH_SHORT = 3 }, '
+            'fx = { { "equip", "Equip: x" } } } } }')["WorldCodexDB"]
+        snap = merge.validate(merge.snapshot_from_saved(saved))
+        self.assertEqual(snap["it"][3000]["wd"], [5, 10, 2600], "details from SavedVariables uploads")
+        self.assertEqual(snap["it"][3000]["fx"], [["equip", "Equip: x"]])
+
+    def test_lua_file_is_packed_and_reads_back(self):
+        a = self.snap("aaaa0001", 100, 20)
+        a["src"][1234].update({"l": {100: [20, 31, {1: 15, 2: 3}], 555: [3, 3]}, "qb": {555: 40},
+                               "lv": [5, 6], "cl": "rare", "zn": {-389: 2}, "nm": "Gnoll «Ä»"})
+        data, _ = merge.merge([merge.validate({**a, "v": 1})])
+        data["sources"][1234]["cm"] = [1, 12, None, None]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "C.lua"
+            merge.write_lua(data, out)
+            text = out.read_text()
+            raw = merge._read_lua_raw(text)
+            self.assertEqual(raw["packed"], 1)
+            self.assertEqual(set(raw["sources"][1234]), {"nm", "k", "n", "m", "_"}, "only the list fields stay plain")
+            self.assertEqual(merge._parse_ser(raw["ix"][555].encode())[0], {1: 1234})
+            self.assertEqual(raw["qi"], {555: True})
+            self.assertEqual(raw["pairs"], 2)
+            self.assertNotIn("\n    ", text.split("local function put")[1].split("end\n", 3)[-1], "no indentation")
+            back = merge.read_lua(text)
+            s = back["sources"][1234]
+            self.assertEqual(s["nm"], "Gnoll «Ä»")
+            self.assertEqual(s["l"][100], {1: 20, 2: 31, 3: {1: 15, 2: 3}})
+            self.assertEqual((s["qb"], s["cl"], s["zn"], s["cm"]), ({555: 40}, "rare", {-389: 2}, {1: 1, 2: 12}))
+            self.assertNotIn("ix", back)
+            luajit = shutil.which("luajit") or shutil.which("lua5.1")
+            if luajit:  # the addon's own decoder reads what _ser wrote
+                check = ("local ns = {}; assert(loadfile('Codec.lua'))('WorldCodex', ns); dofile(arg[1]); "
+                         "local s = WorldCodex_CommunityData.sources[1234]; local b = ns.Codec.Deserialize(s._); "
+                         "assert(b.l[100][3][1] == 15 and b.qb[555] == 40 and b.cl == 'rare' and b.cm[2] == 12)")
+                script = Path(tmp) / "check.lua"
+                script.write_text(check)
+                res = subprocess.run([luajit, str(script), str(out)], capture_output=True, text=True,
+                                     cwd=Path(__file__).resolve().parent.parent)
+                self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_addon_file_has_its_own_limits(self):
+        a = self.snap("aaaa0001", 100, 20)
+        a["src"][1234]["l"][200] = [1, 1]
+        a["src"][1234]["qb"] = {200: 50}
+        b = {"v": 1, "uid": "bbbb0002", "rev": 1, "src": {77: self.mob(3, 1, "Rat")}}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "in").mkdir()
+            for i, s in enumerate([{**a, "v": 1}, b]):
+                (tmp / "in" / f"{i}.txt").write_text(
+                    "WCX1:R:" + base64.b64encode(merge._ser(s).encode()).decode())
+            rc = merge.main([str(tmp / "in"), "--out", str(tmp / "C.lua"), "--json", str(tmp / "d.json"),
+                             "--manifest", str(tmp / "m.json"), "--lua-min-n", "10", "--lua-min-d", "2"])
+            self.assertEqual(rc, 0)
+            web = json.loads((tmp / "d.json").read_text())
+            self.assertEqual(set(web["sources"]), {"1234", "77"}, "the website keeps everything")
+            self.assertIn("200", web["sources"]["1234"]["l"])
+            lua = merge.read_lua((tmp / "C.lua").read_text())
+            self.assertEqual(set(lua["sources"]), {1234}, "thin sources stay out of the addon")
+            self.assertEqual(set(lua["sources"][1234]["l"]), {100})
+            self.assertNotIn("qb", lua["sources"][1234], "quest bases follow their pairs")
+            self.assertEqual(json.loads((tmp / "m.json").read_text())["pairs"], 1, "manifest describes the addon file")
 
 
 if __name__ == "__main__":

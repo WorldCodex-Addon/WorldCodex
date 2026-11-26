@@ -15,7 +15,7 @@ local HELP = {
     "/worldcodex sync [on|off|now] - guild/group sharing status",
     "/worldcodex export [string|lua|json|csv [drops|quests|items|prices|history|vendors|recipes|npcs]] | import",
     "/worldcodex report | top [n] | kinds | status | kpi",
-    "/worldcodex options | prune | diag [clear|loot|perf] | clear confirm",
+    "/worldcodex options | prune | diag [clear|loot|perf|item <id>] | clear confirm",
 }
 
 local function ItemAndCount(rest)
@@ -165,6 +165,13 @@ end
 local function Diag(arg)
     if arg == "loot" then return DiagLoot() end
     if arg == "perf" then return DiagPerf() end
+    local itemArg = arg and arg:match("^item%s*(.*)$")
+    if itemArg then
+        for _, line in ipairs(ns.Items.Diagnose(ns.ItemIdFromLink(itemArg) or tonumber(itemArg))) do
+            ns.Print(line)
+        end
+        return
+    end
     if arg == "clear" then
         ns.db.diag = nil
         for i = #ns.blocked, 1, -1 do

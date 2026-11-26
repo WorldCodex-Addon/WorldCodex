@@ -180,6 +180,7 @@ local function Items()
         local it = ns.db.items[id]
         local e = it and Copy(it) or {}
         e.src = nil -- the item -> source index is rebuilt from the drops
+        e.dv = nil -- when Items.lua read the details: internal
         if not e.n then
             -- not looted ourselves (prices, vendors, recipes): ask the client cache
             local d = ns.ItemDetails(id)
@@ -392,12 +393,16 @@ end
 
 CSV.items = function()
     local lines = {
-        "item_id,name,quality,item_level,required_level,class_id,subclass_id,equip_slot,icon,stack,bind,vendor_sell_copper",
+        "item_id,name,quality,item_level,required_level,class_id,subclass_id,equip_slot,icon,stack,bind,vendor_sell_copper,"
+            .. "inventory_type,armor,damage_min,damage_max,speed_ms,durability,unique,set_id,use_spell_id",
     }
     local items = Items()
     for _, id in ipairs(Sorted(items, true)) do
         local e = items[id]
-        Row(lines, id, e.n, e.ql, e.il, e.rq, e.cl, e.sc, e.eq, e.ic, e.sk, e.bd, e.v)
+        local wd, st = type(e.wd) == "table" and e.wd or {}, type(e.st) == "table" and e.st or {}
+        Row(lines, id, e.n, e.ql, e.il, e.rq, e.cl, e.sc, e.eq, e.ic, e.sk, e.bd, e.v, e.iv, st.RESISTANCE0_NAME)
+        Row(lines, wd[1], wd[2], wd[3], e.du, e.un, e.set, e.us)
+        lines[#lines - 1] = lines[#lines - 1] .. "," .. table.remove(lines)
     end
     return table.concat(lines, "\n")
 end

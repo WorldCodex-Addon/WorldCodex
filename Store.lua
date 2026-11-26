@@ -779,12 +779,54 @@ end
 
 -- ---------------------------------------------------------------- layers
 
+-- The shipped file packs each source (tools/merge.py write_lua, `packed = 1`): nm, k, n and m are plain
+-- fields, everything else (l, qb, sp, zn, cm, lv, ...) is one Codec string in `_`, decoded on first
+-- read through a metatable. A table per loot entry for the whole world would cost tens of MB; strings
+-- cost a seventh of that. Decoded bodies are kept for the BODY_CACHE most recently read records (two
+-- generations, so a full scan never holds more than twice that). Readers see ordinary records.
+local BODY_CACHE = 400
+local hotBodies, coldBodies, hotCount = {}, {}, 0
+
+local function Body(rec)
+    local body = hotBodies[rec]
+    if body then return body end
+    body = coldBodies[rec]
+    if not body then
+        body = ns.Codec.Deserialize(rawget(rec, "_"))
+        if type(body) ~= "table" then body = {} end
+    end
+    if hotCount >= BODY_CACHE then
+        coldBodies, hotBodies, hotCount = hotBodies, {}, 0
+    end
+    hotBodies[rec] = body
+    hotCount = hotCount + 1
+    return body
+end
+
+local PackedRecord = { __index = function(rec, field) return Body(rec)[field] end }
+local preparedCommunity
+
 local function Community()
     local c = WorldCodex_CommunityData
-    if type(c) == "table" and type(c.sources) == "table" then return c end
-    return nil
+    if type(c) ~= "table" or type(c.sources) ~= "table" then return nil end
+    if preparedCommunity ~= c then
+        preparedCommunity = c
+        hotBodies, coldBodies, hotCount = {}, {}, 0
+        if c.packed then
+            for _, rec in pairs(c.sources) do
+                if type(rec) == "table" and type(rawget(rec, "_")) == "string" then setmetatable(rec, PackedRecord) end
+            end
+        end
+    end
+    return c
 end
 Store.Community = Community
+
+-- The community item index of a packed file (ix[itemId] = Codec list of source keys), nil otherwise.
+local function CommunityIndex(c)
+    if c and c.packed and type(c.ix) == "table" then return c.ix end
+    return nil
+end
 
 local function IsContributor(uid)
     local c = Community()
@@ -1131,13 +1173,22 @@ function Store.ZoneCounts(key)
     return out
 end
 
--- itemId -> { [sourceKey] = true } over all layers
+-- itemId -> { [sourceKey] = true } over all layers; a packed community file keeps its own index
+-- (communityIndex), read per item by SourcesForItem instead of being copied in here.
 local index = {}
+local communityIndex
 Store.indexDirty = true
 
 function Store.RebuildIndex()
     index = {}
     sharedQuest, questNames = {}, nil
+    local c = Community()
+    communityIndex = DB.settings.useCommunity and CommunityIndex(c) or nil
+    if communityIndex then
+        for id in pairs(type(c.qi) == "table" and c.qi or {}) do
+            sharedQuest[id] = true
+        end
+    end
     local function add(id, key)
         local t = index[id]
         if not t then
@@ -1151,7 +1202,8 @@ function Store.RebuildIndex()
             add(id, key)
         end
     end
-    SharedTables(function(_, src)
+    SharedTables(function(layer, src)
+        if layer == "community" and communityIndex then return end
         for key, s in pairs(src) do
             if type(s) == "table" then
                 for id in pairs(type(s.l) == "table" and s.l or {}) do
@@ -1183,13 +1235,26 @@ end
 
 function Store.SourcesForItem(itemId)
     if Store.indexDirty then Store.RebuildIndex() end
-    return index[itemId] or {}
+    local packed = communityIndex and communityIndex[itemId]
+    if type(packed) ~= "string" then return index[itemId] or {} end
+    local out = {}
+    for key in pairs(index[itemId] or {}) do
+        out[key] = true
+    end
+    local keys = ns.Codec.Deserialize(packed)
+    for _, key in pairs(type(keys) == "table" and keys or {}) do
+        out[key] = true
+    end
+    return out
 end
 
 function Store.AllItemIds()
     if Store.indexDirty then Store.RebuildIndex() end
     local ids = {}
     for id in pairs(index) do
+        ids[id] = true
+    end
+    for id in pairs(communityIndex or {}) do
         ids[id] = true
     end
     for id in pairs(DB.items) do
@@ -1316,6 +1381,9 @@ function Store.Snapshot(opts)
                 it[id] =
                     { n = e.n, ql = e.ql, v = e.v, il = e.il, rq = e.rq, cl = e.cl, sc = e.sc, eq = e.eq, ic = e.ic }
                 it[id].sk, it[id].bd = e.sk, e.bd
+                -- details (Items.lua): stats, weapon damage, durability, effects, ...
+                it[id].iv, it[id].st, it[id].wd, it[id].du = e.iv, e.st, e.wd, e.du
+                it[id].set, it[id].un, it[id].us, it[id].fx = e.set, e.un, e.us, e.fx
             end
             Yield()
         end
@@ -1498,6 +1566,39 @@ local function CleanNpcs(np)
     return out
 end
 
+local EFFECT_TRIGGERS = { use = true, equip = true, proc = true, learn = true }
+
+-- Item details (Items.lua) from an untrusted snapshot, copied onto `out`.
+local function CleanItemDetails(out, e)
+    out.iv, out.du, out.set = Num(e.iv, 40), Num(e.du, 1000), Num(e.set, 1e6)
+    out.un, out.us = Num(e.un, 100), Num(e.us, 1e7)
+    if type(e.st) == "table" then
+        local st, n = {}, 0
+        for k, v in pairs(e.st) do
+            if type(k) == "string" and #k <= 48 and k:match("^[%u%d_]+$") and type(v) == "number" then
+                if v == v and math.abs(v) < 1e6 and n < 40 then
+                    st[k] = v
+                    n = n + 1
+                end
+            end
+        end
+        if n > 0 then out.st = st end
+    end
+    if type(e.wd) == "table" then
+        local lo, hi, speed = Num(e.wd[1], 1e5), Num(e.wd[2], 1e5), Num(e.wd[3], 10000)
+        if lo and hi and hi >= lo then out.wd = { lo, hi, speed } end
+    end
+    if type(e.fx) == "table" then
+        local fx = {}
+        for i = 1, math.min(#e.fx, 8) do
+            local x = e.fx[i]
+            local text = type(x) == "table" and type(x[2]) == "string" and x[2]:sub(1, 250):gsub("|", "")
+            if text and text ~= "" and EFFECT_TRIGGERS[x[1]] then fx[#fx + 1] = { x[1], text } end
+        end
+        if #fx > 0 then out.fx = fx end
+    end
+end
+
 local function CleanItems(it)
     local out, count = {}, 0
     for id, e in pairs(it) do
@@ -1521,6 +1622,7 @@ local function CleanItems(it)
                 sk = Num(e.sk, 10000),
                 bd = Num(e.bd, 10),
             }
+            CleanItemDetails(out[id], e)
         end
     end
     return out

@@ -200,8 +200,10 @@ every client already knows its items.
   - `days`: daily rollups `{mi, md, mn, mx, q, c}`. When several uploads cover the same day, medians and
     averages are weighted by the number of scans `c`; the minimum and maximum are the extremes.
   - The daily history comes only from SavedVariables uploads. Share strings carry the latest scan.
-- **Items:** `{n, names: {locale: name}, ql, v, il, rq, cl, sc, eq, ic, sk, bd}`. `n` is the English name when
-  one was uploaded. The other fields take the most common value (see [export.md](export.md)).
+- **Items:** `{n, names: {locale: name}, ql, v, il, rq, cl, sc, eq, ic, sk, bd, iv, du, set, un, us, st, wd,
+  fx: {locale: [[trigger, text], ...]}}`. `n` is the English name when one was uploaded. The other fields take
+  the most common value (`st` and `wd` as a whole); effect texts are kept per language (see
+  [export.md](export.md) for the details fields).
 
 ### Names
 
@@ -226,25 +228,52 @@ them in its own language.
 - Size controls:
   - `--min-n` drops sources with few attempts in total.
   - `--min-d` drops source/item pairs seen fewer times.
+  - `--lua-min-n` / `--lua-min-d` do the same only for the addon's Lua file (default: `--min-n` / `--min-d`).
+    The website's JSON keeps the long tail, the addon ships what is statistically useful. The manifest
+    describes the Lua file.
   - Spawns keep the 32 busiest cells per map.
 
 ## Lua file (`Data/Community.lua`)
 
 ```lua
-WorldCodex_CommunityData = { version = 1, schema = 2, generated = …,
-                          contributors = {}, sources = {}, vendors = {}, recipes = {}, names = {} }
+WorldCodex_CommunityData = { version = 1, schema = 2, generated = …, packed = 1, pairs = …,
+                          contributors = {}, sources = {}, vendors = {}, recipes = {}, npcs = {}, names = {},
+                          ix = {}, qi = {} }
 local function put(section, sub, part) … end
-put("sources", nil, function() return { [1234] = {…}, … } end)
-put("names", "deDE", function() return { [1234] = "…", … } end)
+put("sources", nil, function() return {
+[1234]={_="{s1:l{n100;{n1;n20;n2;n25;}}s2:sp{…}}",k="mob",m=0,n=100,nm="Kobold"},
+…
+} end)
+put("ix", nil, function() return {
+[100]="{n1;n1234;n2;s6:go:1617}",
+…
+} end)
+put("names", "deDE", function() return { … } end)
 ```
+
+The file holds the same data as the JSON (without `prices` and `items`), in a form that keeps the
+addon's memory small:
+
+- **Packed sources** (`packed = 1`). A source keeps `nm`, `k`, `n` and `m` as plain fields, which every
+  list and name lookup reads. All other fields (`l`, `qb`, `sp`, `zn`, `cm`, `lv`, `cl`, `ch`, `rp`, `qg`,
+  `qt`, `rq`, `si`) are one string `_` in the addon's serializer format (`Codec.Serialize`: `n<number>;`,
+  `s<len>:<bytes>`, `T`, `F`, `{ key value … }`; arrays have the keys 1..n). The addon decodes a record
+  the first time one of these fields is read (`Store.Community` sets a metatable) and keeps the
+  decoded form for the last few hundred records only.
+- **Item index** `ix[itemId]`: the serialized list of source keys that drop the item, so the addon finds
+  the sources of an item without decoding every record. `qi` = items that have quest sample sizes
+  (`qb`) somewhere, `pairs` = number of source/item pairs.
+- Vendors, recipes, NPCs and names are plain Lua tables.
+- One record per line, no indentation: small, and a new release still diffs record by record.
 
 Every section is split into functions of at most about 20,000 values each, because Lua limits the
 number of constants per function: LuaJIT allows 65,536 and Lua 5.1 more. `merge.read_lua()` reads the
-file back.
+file back and unpacks the sources (the addon-only `ix`, `qi`, `pairs` and `packed` are left out).
 
-As a rough guide, a synthetic dataset with 5,000 mobs × 40 items (200,000 pairs) and 1,500 vendors is
-23 MB on disk. Under LuaJIT it loads and indexes in about 0.3 s and uses about 67 MB of memory. Keep
-the shipped file well below that with `--min-n` and `--min-d`.
+As a rough guide, a synthetic dataset with 5,000 mobs × 40 items (200,000 pairs, 64 spawn cells each)
+is 11 MB on disk and, under LuaJIT, loads in about 30 ms and uses about 12 MB of memory; decoding one
+record takes about 0.03 ms. The same data as plain Lua tables used 41 MB (more in WoW's own Lua, whose
+tables are larger than LuaJIT's).
 
 ## Manifest
 

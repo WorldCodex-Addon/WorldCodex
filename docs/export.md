@@ -68,6 +68,17 @@ Untick sections in the window to leave them out.
   - `ql` quality, `v` vendor sell price, `il` item level, `rq` required level.
   - `cl`/`sc`: class and subclass ids.
   - `eq` slot token, `ic` icon, `sk` stack size, `bd` bind type.
+  - Details, for weapons, armour and items with a use spell (read once per item by `Items.lua`, from
+    bags, equipped gear, items received, chat links, auction house results and inspected players):
+    - `st = {KEY: value}`: stats as `C_Item.GetItemStats` names them, e.g. `ITEM_MOD_STRENGTH_SHORT`,
+      `RESISTANCE0_NAME` (armour), `RESISTANCE2_NAME` (fire resistance), `ITEM_MOD_DAMAGE_PER_SECOND_SHORT`
+      (DPS, one decimal). The keys are the names of the client's global strings, the same in every language.
+      Base stats only: random suffixes ("of the Bear") are not included.
+    - `wd = {min, max, speedMs}`: weapon damage and speed in milliseconds (from the tooltip).
+    - `du` durability, `iv` inventory type (`Enum.InventoryType`), `set` item set id, `un` how many may be
+      equipped (unique), `us` use spell id.
+    - `fx = {{trigger, text}}`: effect lines in your language, trigger `use`, `equip`, `proc` (chance on hit)
+      or `learn`.
 - **Price:** `t` (scan time), `mi` min, `md` median, `mn` average with outliers trimmed, `mx` max, `q` listed quantity, `market`.
 - **Day:** `day` = unix time / 86400. Fields `mi`, `md`, `mn`, `mx`, `q`, plus `c` (number of scans that day).
 - **Vendor, recipe, NPC:** as described in [dataset.md](dataset.md).

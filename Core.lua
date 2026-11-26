@@ -584,12 +584,13 @@ end
 function ns.ItemDetails(itemId)
     local d = { id = itemId }
     if GetItemInfoFn and itemId then
-        local ok, name, link, quality, ilvl, minLevel, class, subclass, stack, equipLoc, texture, sellPrice, classId, subclassId, bind =
+        local ok, name, link, quality, ilvl, minLevel, class, subclass, stack, equipLoc, texture, sellPrice, classId, subclassId, bind, _, setId =
             pcall(GetItemInfoFn, itemId)
         if ok and type(name) == "string" then
             d.name, d.link, d.quality, d.ilvl, d.minLevel = name, link, quality, ilvl, minLevel
             d.class, d.subclass, d.stack, d.texture, d.sellPrice = class, subclass, stack, texture, sellPrice
             d.classId, d.subclassId, d.bind = classId, subclassId, bind
+            if type(setId) == "number" and setId > 0 then d.setId = setId end
             if type(equipLoc) == "string" and equipLoc ~= "" then
                 d.equipLoc = equipLoc
                 -- reagents have a slot type whose label is empty (INVTYPE_NON_EQUIP_IGNORE)
@@ -652,7 +653,8 @@ function ns.SpellName(spellId)
     return nil
 end
 
--- Set of item ids currently in the player's bags (backpack, bags and reagent bag). Cached until bags change.
+-- Set of item ids the player carries: bags (backpack, bags and reagent bag) and equipped gear. Cached
+-- until bags or equipment change.
 local bagCache
 function ns.BagItems()
     if bagCache then return bagCache end
@@ -668,14 +670,22 @@ function ns.BagItems()
             end
         end
     end
+    if GetInventoryItemID then
+        for slot = 1, 19 do
+            local id = ns.Call(GetInventoryItemID, "player", slot)
+            if type(id) == "number" then set[id] = true end
+        end
+    end
     bagCache = set
     return set
 end
 
-ns.RegisterEvent("BAG_UPDATE_DELAYED", function()
+local function BagsChanged()
     bagCache = nil
     ns.Fire("BAGS_CHANGED")
-end)
+end
+ns.RegisterEvent("BAG_UPDATE_DELAYED", BagsChanged)
+ns.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", BagsChanged)
 
 function ns.InGroup()
     if IsInGroup then return IsInGroup() and true or false end

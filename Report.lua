@@ -351,6 +351,63 @@ local function SourceEntry(r, itemId)
     }
 end
 
+-- Label of a stat key from C_Item.GetItemStats: the client's own global string ("Ausdauer" for
+-- ITEM_MOD_STAMINA_SHORT on a German client), else the key.
+local function StatLabel(key)
+    local label = _G[key]
+    if type(label) == "string" and label ~= "" and not ns.IsSecret(label) then return label end
+    return key
+end
+
+local SHOWN_APART = { RESISTANCE0_NAME = true, ITEM_MOD_DAMAGE_PER_SECOND_SHORT = true }
+
+-- Stats, weapon damage, durability and effects recorded by Items.lua (queued when nothing is known yet).
+function R.ItemDetailRows(itemId)
+    local it = ns.db.items[itemId]
+    local rows = {}
+    if not (it and it.dv == (ns.Items and ns.Items.VERSION)) and ns.Items then
+        -- not read yet: now, unless in combat (then queued); nothing recorded for trade goods
+        if ns.InCombat() then
+            ns.Items.Queue(itemId)
+        else
+            ns.Items.Read(itemId)
+        end
+        it = ns.db.items[itemId]
+    end
+    if not (it and it.dv) then return rows end
+    local st = type(it.st) == "table" and it.st or {}
+    if type(it.wd) == "table" and it.wd[1] then
+        rows[#rows + 1] = { label = L["Damage"], value = string.format("%d - %d", it.wd[1], it.wd[2]) }
+        local speed = it.wd[3]
+        if speed and speed > 0 then
+            rows[#rows + 1] = { label = L["Speed"], value = string.format("%.2f", speed / 1000) }
+            local dps = st.ITEM_MOD_DAMAGE_PER_SECOND_SHORT or (it.wd[1] + it.wd[2]) / 2 / (speed / 1000)
+            rows[#rows + 1] = { label = L["Damage per second"], value = string.format("%.1f", dps) }
+        end
+    end
+    if st.RESISTANCE0_NAME then rows[#rows + 1] = { label = L["Armor"], value = tostring(st.RESISTANCE0_NAME) } end
+    local keys = {}
+    for key, v in pairs(st) do
+        if not SHOWN_APART[key] and type(v) == "number" then keys[#keys + 1] = key end
+    end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+        local v = st[key]
+        rows[#rows + 1] = { label = StatLabel(key), value = (v > 0 and "+" or "") .. tostring(v) }
+    end
+    if it.du then rows[#rows + 1] = { label = L["Durability"], value = tostring(it.du) } end
+    if it.un then rows[#rows + 1] = { label = L["Unique"], value = tostring(it.un) } end
+    if it.set then
+        local get = C_Item and C_Item.GetItemSetInfo
+        local name = get and ns.Call(get, it.set)
+        rows[#rows + 1] = { label = L["Item set"], value = type(name) == "string" and name or ("#" .. it.set) }
+    end
+    for _, x in ipairs(type(it.fx) == "table" and it.fx or {}) do
+        rows[#rows + 1] = { note = x[2] }
+    end
+    return rows
+end
+
 function R.ItemFacts(itemId)
     local d = ns.ItemDetails(itemId)
     local facts = { id = itemId, icon = d.texture, title = ns.ItemName(itemId, true), sections = {} }
@@ -381,6 +438,8 @@ function R.ItemFacts(itemId)
     end
     if #all == 0 then rows[1] = { note = L["no drops recorded yet"] } end
     facts.sections[2] = { title = L["Sources"], rows = rows }
+    local item = R.ItemDetailRows(itemId)
+    if #item > 0 then facts.sections[#facts.sections + 1] = { title = L["Item"], rows = item } end
 
     if ns.FarmingOn() then
         local farm = {}

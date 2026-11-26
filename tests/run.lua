@@ -1137,6 +1137,328 @@ test("community layer with own upload uses a baseline", function()
     eq(cmp.others.n, parts[2].n)
 end)
 
+test("packed community records read like plain ones and are found through the shipped item index", function()
+    local env = Env()
+    env.saved = {
+        version = 3,
+        sources = { [5678] = { name = "Gnoll", kind = "mob", kills = 4, lb = 4, loot = { [100] = { d = 1, q = 1 } } } },
+    }
+    local sources = {
+        -- as tools/merge.py write_lua packs them: nm, k, n, m plain, the rest Codec-serialized in "_"
+        [1234] = {
+            nm = "Kobold",
+            k = "mob",
+            n = 1100,
+            m = 50,
+            _ = "{s1:l{n100;{n1;n220;n2;n230;n3;{n1;n210;n2;n10;}}n555;{n1;n3;n2;n3;}}"
+                .. "s2:qb{n555;n40;}s2:sp{n1429;{n4040;n3;}}s2:lv{n1;n5;n2;n6;}}",
+        },
+    }
+    for i = 1, 1000 do -- more than the decode cache holds
+        sources[20000 + i] =
+            { nm = "Mob " .. i, k = "mob", n = i, m = 0, _ = "{s1:l{n" .. (30000 + i) .. ";{n1;n1;n2;n1;}}}" }
+    end
+    env.community = {
+        version = 1,
+        generated = 42,
+        packed = 1,
+        pairs = 1002,
+        contributors = {},
+        sources = sources,
+        ix = { [100] = "{n1;n1234;}", [555] = "{n1;n1234;}" },
+        qi = { [555] = true },
+    }
+    for i = 1, 1000 do
+        env.community.ix[30000 + i] = "{n1;n" .. (20000 + i) .. ";}"
+    end
+    local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+    local d, n = ns.Store.Combined(1234, 100)
+    eq(n, 1100, "plain field")
+    eq(d, 220, "loot from the packed body")
+    eq(ns.Store.QtyHist(1234, 100)[2], 10, "stack sizes from the packed body")
+    local srcs = ns.Store.SourcesForItem(100)
+    ok(srcs[1234] and srcs[5678], "community index and own index together")
+    ok(ns.Store.IsGated(555), "quest items of the community file")
+    d, n = ns.Store.Combined(1234, 555)
+    eq(n, 40, "quest item uses its own sample size")
+    eq(d, 3)
+    eq(ns.Store.Spawns(1234)[1429][4040], 3, "spawns from the packed body")
+    ok(ns.Store.AllItemIds()[30500], "item ids of the community index")
+    for i = 1, 1000 do
+        local dd, nn = ns.Store.Combined(20000 + i, 30000 + i)
+        if dd ~= 1 or nn ~= i then
+            error("record " .. i .. " after cache eviction: " .. tostring(dd) .. "/" .. tostring(nn))
+        end
+    end
+    eq(ns.Store.Combined(1234, 100), 220, "evicted records decode again")
+    eq(ns.KPI.Compute().communityPairs, 1002, "pair count from the file, nothing decoded")
+    ns.db.settings.useCommunity = false
+    ns.Fire("SETTINGS_CHANGED", "useCommunity")
+    ok(not ns.Store.SourcesForItem(100)[1234], "the community index follows the layer switch")
+    ok(ns.Store.SourcesForItem(100)[5678])
+end)
+
+test("the shipped community file loads packed and matches its item index", function()
+    local ns = Stub.Boot(ROOT, Env(), { filter = CORE_ONLY, realCommunity = true })
+    local c = ns.Store.Community()
+    ok(c and c.packed, "the shipped file is packed (regenerate it with tools/merge.py)")
+    local checked = 0
+    for id, packed in pairs(c.ix) do
+        local keys = ns.Codec.Deserialize(packed)
+        for _, key in ipairs(keys) do
+            ok(type(c.sources[key].l) == "table" and c.sources[key].l[id], "item " .. id .. " at " .. tostring(key))
+            checked = checked + 1
+        end
+    end
+    eq(checked, c.pairs, "every pair is in the index")
+end)
+
+-- C_Item / C_TooltipInfo for item details (Items.lua); removed again by the test.
+local function ItemApis(env, opts)
+    local requested = {}
+    local function Id(link) return tonumber(tostring(link):match("item:(%d+)")) end
+    _G.C_Item = {
+        GetItemStats = function(link) return opts.stats[Id(link)] end,
+        GetItemInventoryTypeByID = function(id) return opts.slots[id] end,
+        GetItemUniqueness = function(id) return 0, opts.unique[id] or 0 end,
+        GetItemSpell = function(id)
+            if opts.spells[id] then return "Spell", opts.spells[id] end
+        end,
+        GetItemInfoInstant = function(id)
+            local it = env.items[id] or opts.instant[id]
+            return id, "", "", "", 0, it and it.classId
+        end,
+        RequestLoadItemDataByID = function(id) requested[id] = true end,
+    }
+    _G.C_TooltipInfo = { GetItemByID = function(id) return opts.tooltips[id] end }
+    _G.DAMAGE_TEMPLATE, _G.SPEED, _G.DURABILITY_TEMPLATE = "%s - %s Schaden", "Tempo", "Haltbarkeit %d / %d"
+    _G.ITEM_MOD_STRENGTH_SHORT = "Stärke"
+    return requested
+end
+
+local function NoItemApis()
+    _G.C_Item, _G.C_TooltipInfo = nil, nil
+    _G.DAMAGE_TEMPLATE, _G.SPEED, _G.DURABILITY_TEMPLATE, _G.ITEM_MOD_STRENGTH_SHORT = nil, nil, nil, nil
+end
+
+local function WeaponTooltip(lo, hi, speed, durability, effect)
+    local lines = {
+        { leftText = "Gnollschwert", type = 22 },
+        { leftText = "Einhand", rightText = "Schwert", type = 21 },
+        { leftText = lo .. " - " .. hi .. " Schaden", rightText = "Tempo " .. speed },
+        { leftText = "(5,8 Schaden pro Sekunde)" },
+        { leftText = "+3 Stärke" },
+        { leftText = "Haltbarkeit " .. durability .. " / " .. durability },
+    }
+    if effect then lines[#lines + 1] = { leftText = "|cff00ff00" .. effect .. "|r", type = 45 } end
+    return { lines = lines }
+end
+
+test("item details are read from chat links, inspected players, received items and the auction house", function()
+    local env = Env()
+    env.saved = { version = 3, meta = { uid = "me00000000000000", rev = 1 } }
+    env.items[3000] = { name = "Gnollschwert", classId = 2 }
+    env.items[4000] = { name = "Heiltrank", classId = 0 }
+    env.items[3002] = { name = "Lederhelm", classId = 4 }
+    env.units.target = { guid = "Player-1-00000001", name = "Someone" }
+    local requested = ItemApis(env, {
+        stats = {
+            [3000] = { ITEM_MOD_STRENGTH_SHORT = 3, ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 5.7692, RESISTANCE0_NAME = 0 },
+            [3001] = { RESISTANCE0_NAME = 120 },
+            [3002] = { RESISTANCE0_NAME = 40 },
+        },
+        slots = { [3000] = 13, [3001] = 20, [3002] = 1 },
+        unique = { [3000] = 1 },
+        spells = { [4000] = 439 },
+        instant = { [3001] = { classId = 4 } },
+        tooltips = {
+            [3000] = WeaponTooltip(5, 10, "2,60", 45, "Anlegen: Erhöht Eure Angriffskraft um 10."),
+            [3001] = { lines = { { leftText = "Robe" }, { leftText = "Haltbarkeit 70 / 70" } } },
+            [4000] = { lines = { { leftText = "Benutzen: Stellt 70 Gesundheit wieder her.", type = 44 } } },
+        },
+    })
+    _G.GetInventoryItemLink = function(unit, slot)
+        if unit == "target" and slot == 5 then return "|cff1eff00|Hitem:3001:0:0:0|h[Robe]|h|r" end
+    end
+    local ok, err = pcall(function()
+        local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+        ns.Dispatch("CHAT_MSG_CHANNEL", "WTS |cff1eff00|Hitem:3000::::::::|h[Gnollschwert]|h|r and |Hitem:100|h[x]|h")
+        ns.Dispatch("INSPECT_READY", "Player-1-00000001")
+        ns.Fire("RECEIVED", 4000, 1)
+        Advance(ns, 1)
+        local it = ns.db.items[3000]
+        ok(it and it.dv == ns.Items.VERSION, "chat link read")
+        eq(it.wd[1], 5)
+        eq(it.wd[2], 10)
+        eq(it.wd[3], 2600, "German speed with a decimal comma")
+        eq(it.du, 45)
+        eq(it.st.ITEM_MOD_STRENGTH_SHORT, 3)
+        eq(it.st.ITEM_MOD_DAMAGE_PER_SECOND_SHORT, 5.8, "rounded")
+        eq(it.st.RESISTANCE0_NAME, nil, "zero stats left out")
+        eq(it.iv, 13)
+        eq(it.un, 1)
+        eq(it.fx[1][1], "equip")
+        eq(it.fx[1][2], "Anlegen: Erhöht Eure Angriffskraft um 10.", "colour codes removed")
+        eq(it.n, "Gnollschwert", "the item facts are recorded too (the export needs the name)")
+        eq(ns.db.items[100], nil, "trade goods without a use spell get no record")
+        eq(ns.db.items[4000].us, 439, "use spell of a consumable")
+        eq(ns.db.items[4000].fx[1][1], "use")
+        eq(ns.db.items[4000].st, nil)
+        -- the inspected robe was not in the item cache: requested, read once the client has it
+        ok(requested[3001], "item data requested")
+        eq(ns.db.items[3001], nil)
+        env.items[3001] = { name = "Robe", classId = 4 }
+        ns.Dispatch("GET_ITEM_INFO_RECEIVED", 3001, true)
+        Advance(ns, 1)
+        eq(ns.db.items[3001].st.RESISTANCE0_NAME, 120, "inspected item read after the cache answered")
+        eq(ns.db.items[3001].du, 70)
+        eq(ns.db.items[3001].wd, nil, "no weapon damage on armour")
+        -- an auction house full scan queues its gear
+        ns.db.ah[3002] = { last = { t = 1 } }
+        ns.db.ah[100] = { last = { t = 1 } }
+        ns.Fire("PRICES_UPDATED")
+        Advance(ns, 1)
+        eq(ns.db.items[3002].st.RESISTANCE0_NAME, 40, "gear from a full scan")
+        eq(ns.db.items[100], nil)
+        -- read once: a second link does not read again
+        local rv = it.rv
+        ns.Dispatch("CHAT_MSG_GUILD", "|Hitem:3000|h[x]|h")
+        Advance(ns, 1)
+        eq(it.rv, rv)
+
+        -- shared: snapshot -> validation keeps the details and drops what is malformed
+        -- (a copy: the snapshot shares tables with the saved data)
+        local snap = ns.Codec.Deserialize(ns.Codec.Serialize(ns.Store.Snapshot({ items = true })))
+        eq(snap.it[3000].wd[3], 2600)
+        eq(snap.it[3000].fx[1][1], "equip")
+        snap.it[3000].st.BAD_KEY_ = "x"
+        snap.it[3000].st["lower"] = 1
+        snap.it[3000].fx[2] = { "hack", "text" }
+        snap.it[3000].wd = { 10, 5 }
+        local clean = ns.Store.ValidateSnapshot(snap)
+        eq(clean.it[3000].st.ITEM_MOD_STRENGTH_SHORT, 3)
+        eq(clean.it[3000].st.BAD_KEY_, nil)
+        eq(clean.it[3000].st.lower, nil)
+        eq(#clean.it[3000].fx, 1, "unknown trigger dropped")
+        eq(clean.it[3000].wd, nil, "max below min dropped")
+        eq(clean.it[4000].us, 439)
+
+        -- the item page shows them with the client's own stat names
+        local rows = ns.Report.ItemDetailRows(3000)
+        local byLabel = {}
+        for _, r in ipairs(rows) do
+            if r.label then byLabel[r.label] = r.value end
+        end
+        eq(byLabel["Damage"], "5 - 10")
+        eq(byLabel["Speed"], "2.60")
+        eq(byLabel["Damage per second"], "5.8")
+        eq(byLabel["Stärke"], "+3")
+        eq(byLabel["Durability"], "45")
+
+        local csv = ns.Export.Csv("items")
+        local header = csv:match("^[^\n]+")
+        local row = csv:match("\n3000,[^\n]+")
+        eq(select(2, row:gsub(",", "")), select(2, header:gsub(",", "")), "as many columns as the header")
+        ok(row:find(",13,,5,10,2600,45,1,,$"), "detail columns: " .. row)
+    end)
+    NoItemApis()
+    _G.GetInventoryItemLink = nil
+    if not ok then error(err, 0) end
+end)
+
+test("an item page shows the item's own details until a row is selected; equipped gear counts as carried", function()
+    local env = Env()
+    env.items[3000] = { name = "Gnollschwert", classId = 2 }
+    ItemApis(env, {
+        stats = { [3000] = { ITEM_MOD_STRENGTH_SHORT = 3 } },
+        slots = {},
+        unique = {},
+        spells = {},
+        instant = {},
+        tooltips = { [3000] = WeaponTooltip(5, 10, "2,60", 45) },
+    })
+    _G.GetInventoryItemID = function(unit, slot)
+        if unit == "player" and slot == 16 then return 3000 end
+    end
+    local ok, err = pcall(function()
+        local ns = Stub.Boot(ROOT, env)
+        ok(ns.BagItems()[3000], "equipped weapon is among the carried items (Bags only list)")
+        ok(ns.Page.Show({ type = "item", id = 3000 }), "item page")
+        local facts = ns.Page.details
+        ok(facts and facts.sections[1], "details panel shown without a selected row")
+        local labels = {}
+        for _, r in ipairs(facts.sections[1].rows) do
+            if r.label then labels[r.label] = r.value end
+        end
+        eq(labels["Damage"], "5 - 10", "read when the page opened, not only from the queue")
+        eq(labels["Stärke"], "+3")
+        local diag = ns.Items.Diagnose(3000)
+        ok(diag[#diag]:find("wd={n1;n5;", 1, true), "diagnosis shows the record: " .. diag[#diag])
+
+        -- with drops the first source is selected and the right page shows it: the details get a tab
+        ns.db.sources[1234] = {
+            name = "Kobold",
+            kind = "mob",
+            kills = 3,
+            lb = 3,
+            attempts = 0,
+            loot = { [3000] = { d = 1, q = 1 } },
+            streak = {},
+        }
+        ns.Store.indexDirty = true
+        ns.Fire("DATA_CHANGED")
+        local tabs = ns.PageItem.Tabs(3000, "all")
+        local ids = {}
+        for _, tab in ipairs(tabs) do
+            ids[#ids + 1] = tab.id
+        end
+        eq(table.concat(ids, ","), "drop,details", "drops first, then the item's own tab")
+        ok(ns.Page.Show({ type = "item", id = 3000, tab = "details" }), "details tab opens")
+        eq(next(ns.errors or {}), nil, "no errors while rendering the tab")
+        eq(ns.Page._State().tab, "details")
+        eq(table.concat(ns.Page._State().tabs, ","), "drop,details")
+    end)
+    NoItemApis()
+    _G.GetInventoryItemID = nil
+    if not ok then error(err, 0) end
+end)
+
+test("item details wait for the end of combat", function()
+    local env = Env()
+    env.items[3000] = { name = "Gnollschwert", classId = 2 }
+    ItemApis(env, {
+        stats = {},
+        slots = {},
+        unique = {},
+        spells = {},
+        instant = {},
+        tooltips = { [3000] = WeaponTooltip(5, 10, "2.60", 45) },
+    })
+    local ok, err = pcall(function()
+        local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+        _G.InCombatLockdown = function() return true end
+        ns.Dispatch("CHAT_MSG_SAY", "|Hitem:3000|h[x]|h")
+        Advance(ns, 1)
+        eq(ns.db.items[3000], nil, "nothing read in combat")
+        _G.InCombatLockdown = function() return false end
+        Advance(ns, 1)
+        eq(ns.db.items[3000].wd[3], 2600, "English speed")
+    end)
+    NoItemApis()
+    _G.InCombatLockdown = nil
+    if not ok then error(err, 0) end
+end)
+
+test("item detail patterns follow the client's format strings", function()
+    local ns = Stub.Boot(ROOT, Env(), { filter = CORE_ONLY })
+    local p = ns.Items.Pattern("%1$s - %2$s Schaden", "x")
+    local lo, hi = ("12 - 23 Schaden"):match(p)
+    eq(lo, "12")
+    eq(hi, "23")
+    eq(("Haltbarkeit 30 / 45"):match(ns.Items.Pattern(nil, "Haltbarkeit %d / %d")), "30")
+    ok(not ("(5.8 damage per second)"):match(ns.Items.Pattern(nil, "%s - %s Damage")))
+end)
+
 test("analysis explains where the numbers come from in words (German client)", function()
     local env = Env()
     env.locale = "deDE"

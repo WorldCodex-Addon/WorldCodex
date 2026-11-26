@@ -305,7 +305,7 @@ def snapshot_from_saved(db: dict) -> dict:
     items = {}
     for item_id, e in (db.get("items") or {}).items():
         if isinstance(e, dict) and e.get("n"):
-            items[_lua_number_key(item_id)] = {k: e.get(k) for k in _ITEM_FIELDS}
+            items[_lua_number_key(item_id)] = {k: e.get(k) for k in _ITEM_FIELDS + _ITEM_DETAILS}
     npcs = {}
     for key, r in (db.get("npcs") or {}).items():
         if isinstance(r, dict):
@@ -331,6 +331,11 @@ def _num(v, maxv=None):
 
 _CLASSIFICATIONS = {"elite", "rare", "rareelite", "worldboss"}
 _ITEM_FIELDS = ("n", "ql", "v", "il", "rq", "cl", "sc", "eq", "ic", "sk", "bd")
+# item details (Items.lua, docs/export.md): numbers voted like the facts above, st/wd voted as a whole,
+# fx (effect texts) kept per locale
+_ITEM_DETAIL_NUMBERS = (("iv", 40), ("du", 1000), ("set", 1e6), ("un", 100), ("us", 1e7))
+_ITEM_DETAILS = tuple(f for f, _ in _ITEM_DETAIL_NUMBERS) + ("st", "wd", "fx")
+_EFFECT_TRIGGERS = ("use", "equip", "proc", "learn")
 _PRICE_FIELDS = ("mi", "md", "mn", "mx", "q")
 
 
@@ -480,6 +485,40 @@ def _clean_history(ahd) -> dict:
     return out
 
 
+def _clean_item_details(e: dict) -> dict:
+    """Same as CleanItemDetails in Store.lua."""
+    out: dict = {}
+    for f, cap in _ITEM_DETAIL_NUMBERS:
+        v = _num(e.get(f), cap)
+        if v is not None:
+            out[f] = int(v)
+    st = e.get("st")
+    if isinstance(st, dict):
+        clean = {}
+        for k, v in list(st.items())[:40]:
+            if (isinstance(k, str) and len(k) <= 48 and re.fullmatch(r"[A-Z0-9_]+", k)
+                    and isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e6):
+                clean[k] = int(v) if float(v).is_integer() else round(float(v), 1)
+        if clean:
+            out["st"] = clean
+    wd = _arr(e.get("wd"))
+    if wd and len(wd) >= 2:
+        lo, hi = _num(wd[0], 1e5), _num(wd[1], 1e5)
+        speed = _num(wd[2], 10000) if len(wd) > 2 else None
+        if lo is not None and hi is not None and hi >= lo:
+            out["wd"] = [int(lo), int(hi)] + ([int(speed)] if speed is not None else [])
+    fx = _arr(e.get("fx"))
+    if fx:
+        clean_fx = []
+        for x in fx[:8]:
+            x = _arr(x)
+            if x and len(x) >= 2 and x[0] in _EFFECT_TRIGGERS and isinstance(x[1], str) and x[1].strip():
+                clean_fx.append([x[0], x[1].replace("|", "")[:250]])
+        if clean_fx:
+            out["fx"] = clean_fx
+    return out
+
+
 def _clean_items(it) -> dict:
     out = {}
     if not isinstance(it, dict):
@@ -498,6 +537,7 @@ def _clean_items(it) -> dict:
         icon = e.get("ic")
         if (isinstance(icon, int) and not isinstance(icon, bool) and icon > 0) or (isinstance(icon, str) and len(icon) <= 120):
             entry["ic"] = icon
+        entry.update(_clean_item_details(e))
         out[item_id] = entry
     return out
 
@@ -935,14 +975,25 @@ def _merge_items(snaps) -> dict:
     for s in snaps:
         loc = s.get("lc") or "?"
         for item_id, e in (s.get("it") or {}).items():
-            a = acc.setdefault(item_id, {f: {} for f in _ITEM_FIELDS} | {"names": {}})
-            for f in _ITEM_FIELDS:
+            a = acc.setdefault(item_id, {f: {} for f in _ITEM_FIELDS + _ITEM_DETAILS} | {"names": {}})
+            for f in _ITEM_FIELDS + tuple(f for f, _ in _ITEM_DETAIL_NUMBERS):
                 if f != "n" and e.get(f) is not None:
                     _count(a[f], e[f])
+            for f in ("st", "wd"):
+                if e.get(f):
+                    _count(a[f], json.dumps(e[f], sort_keys=True))
+            if e.get("fx"):
+                _count(a["fx"].setdefault(loc, {}), json.dumps(e["fx"]))
             _count(a["names"].setdefault(loc, {}), e["n"])
     out = {}
     for item_id, a in acc.items():
-        entry = {f: _vote(a[f]) for f in _ITEM_FIELDS if f != "n" and a[f]}
+        entry = {f: _vote(a[f]) for f in _ITEM_FIELDS + tuple(f for f, _ in _ITEM_DETAIL_NUMBERS) if f != "n" and a[f]}
+        for f in ("st", "wd"):
+            if a[f]:
+                entry[f] = json.loads(_vote(a[f]))
+        effects = {loc: json.loads(_vote(c)) for loc, c in a["fx"].items() if loc != "?"}
+        if effects:
+            entry["fx"] = effects  # {locale: [[trigger, text], ...]}
         names = {loc: _vote(c) for loc, c in a["names"].items() if loc != "?"}
         en = names.get("enUS") or names.get("enGB")
         if not en:
@@ -1121,8 +1172,101 @@ def to_lua(value: Any, indent: int = 0) -> str:
     raise TypeError(f"cannot serialize {type(value)}")
 
 
+def _lua_compact(value: Any) -> str:
+    """Same as to_lua without any whitespace (the shipped file; one record per line, see write_lua)."""
+    if value is None:
+        return "nil"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return _lua_str(value)
+    if isinstance(value, list):
+        return "{" + ",".join(_lua_compact(v) for v in value) + "}"
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{_lua_key(k)}={_lua_compact(v)}" for k, v in _sorted(value)) + "}"
+    raise TypeError(f"cannot serialize {type(value)}")
+
+
+def _ser(value: Any) -> str:
+    """Codec.Serialize in Python (the addon's safe serializer, read back by Codec.Deserialize and _parse_ser).
+    Lists become Lua arrays (keys 1..n); None entries are left out, as Lua drops nil."""
+    if isinstance(value, bool):
+        return "T" if value else "F"
+    if isinstance(value, int):
+        return f"n{value};"
+    if isinstance(value, float):
+        return f"n{int(value)};" if value.is_integer() else f"n{value:.6g};"
+    if isinstance(value, str):
+        return f"s{len(value.encode('utf-8'))}:{value}"
+    if isinstance(value, list):
+        return "{" + "".join(f"n{i};{_ser(v)}" for i, v in enumerate(value, 1) if v is not None) + "}"
+    if isinstance(value, dict):
+        return "{" + "".join(_ser(k) + _ser(v) for k, v in _sorted(value) if v is not None) + "}"
+    raise TypeError(f"cannot serialize {type(value)}")
+
+
+# Source fields the addon reads for every source (lists, names, sample sizes) stay plain Lua values; all
+# others are packed into one string "_" that the addon decodes only when a page or tooltip needs the record
+# (Store.Community). One string per record instead of a table per loot entry: about a seventh of the memory.
+_SOURCE_PLAIN = ("nm", "k", "n", "m")
+
+
+def _pack_source(rec: dict) -> dict:
+    out = {k: rec[k] for k in _SOURCE_PLAIN if k in rec}
+    body = {k: v for k, v in rec.items() if k not in _SOURCE_PLAIN}
+    if body:
+        out["_"] = _ser(body)
+    return out
+
+
+def _unpack_source(rec: dict) -> dict:
+    if not isinstance(rec, dict) or "_" not in rec:
+        return rec
+    out = {k: v for k, v in rec.items() if k != "_"}
+    body, _end = _parse_ser(rec["_"].encode("utf-8"))
+    out.update(body)
+    return out
+
+
+def prune(dataset: dict, min_n: int = 1, min_d: int = 1) -> dict:
+    """A copy of the dataset without sources below min_n and source/item pairs below min_d (merge()
+    already applied its own, usually lower, limits). Used for the addon's file, while the website's JSON
+    keeps the long tail."""
+    if min_n <= 1 and min_d <= 1:
+        return dataset
+    sources = {}
+    for key, s in dataset["sources"].items():
+        if s["n"] < min_n:
+            continue
+        s = dict(s)
+        s["l"] = {i: v for i, v in s["l"].items() if v[0] >= min_d}
+        if s.get("qb"):
+            s["qb"] = {i: n for i, n in s["qb"].items() if i in s["l"]}
+            if not s["qb"]:
+                del s["qb"]
+        sources[key] = s
+    keep = set(sources) | set(dataset.get("npcs") or {}) | {f"vendor:{v}" for v in dataset.get("vendors") or {}}
+    names = {loc: {k: v for k, v in t.items() if k in keep} for loc, t in (dataset.get("names") or {}).items()}
+    return {**dataset, "sources": sources, "names": {loc: t for loc, t in names.items() if t}}
+
+
+def _item_index(sources: dict) -> tuple[dict, dict]:
+    """ix[itemId] = serialized list of the source keys that drop it, qi = items with quest sample sizes: the
+    addon's item index (Store.RebuildIndex) and quest test (Store.IsGated) without decoding every record."""
+    by_item: dict[Any, list] = {}
+    quest: dict[Any, bool] = {}
+    for key, s in _sorted(sources):
+        for item_id in s.get("l") or {}:
+            by_item.setdefault(item_id, []).append(key)
+        for item_id in s.get("qb") or {}:
+            quest[item_id] = True
+    return {i: _ser(keys) for i, keys in by_item.items()}, quest
+
+
 CHUNK_CONSTANTS = 20000  # scalars per Lua function; LuaJIT allows 65536 constants, WoW's Lua 5.1 more
-_CHUNKED = ("contributors", "sources", "vendors", "recipes", "npcs")
+_CHUNKED = ("contributors", "sources", "vendors", "recipes", "npcs", "ix")
 _WEB_ONLY = ("prices", "items")  # in the JSON for the website, not in the addon's Lua file
 _PUT = (
     "local function put(section, sub, part)\n"
@@ -1165,10 +1309,19 @@ def _sorted(d: dict) -> list:
     return sorted(d.items(), key=lambda kv: (isinstance(kv[0], str), kv[0]))
 
 
-def write_lua(dataset: dict, path: Path) -> None:
-    """The big sections are written in chunks, each wrapped in its own function, because Lua limits
-    the number of constants per function and a single huge table constructor would hit it."""
-    head = {k: v for k, v in dataset.items() if k not in _CHUNKED and k not in ("names",) + _WEB_ONLY}
+def write_lua(dataset: dict, path: Path, min_n: int = 1, min_d: int = 1) -> None:
+    """The addon's file. Sources are packed (_pack_source) and indexed by item (_item_index); min_n/min_d
+    leave out what is too thin for the addon (prune). The big sections are written in chunks, each
+    wrapped in its own function, because Lua limits the number of constants per function and a single
+    huge table constructor would hit it. One record per line without whitespace: small, and a new
+    release still diffs record by record."""
+    dataset = prune(dataset, min_n, min_d)
+    ix, qi = _item_index(dataset["sources"])
+    data = {k: v for k, v in dataset.items() if k not in _WEB_ONLY}
+    data["sources"] = {k: _pack_source(s) for k, s in dataset["sources"].items()}
+    data["ix"], data["qi"], data["packed"] = ix, qi, 1
+    data["pairs"] = sum(len(s["l"]) for s in dataset["sources"].values())
+    head = {k: v for k, v in data.items() if k not in _CHUNKED and k != "names"}
     for k in _CHUNKED + ("names",):
         head[k] = {}
     parts = [
@@ -1180,17 +1333,28 @@ def write_lua(dataset: dict, path: Path) -> None:
     def emit(section, sub, items):
         label = "nil" if sub is None else _lua_str(sub)
         for chunk in _chunks(items):
-            parts.append(f'put("{section}", {label}, function() return {to_lua(chunk, 0)} end)\n')
+            rows = ",\n".join(f"{_lua_key(k)}={_lua_compact(v)}" for k, v in chunk.items())
+            parts.append(f'put("{section}", {label}, function() return {{\n{rows}\n}} end)\n')
 
     for section in _CHUNKED:
-        emit(section, None, _sorted(dataset.get(section) or {}))
-    for locale, names in sorted((dataset.get("names") or {}).items()):
+        emit(section, None, _sorted(data.get(section) or {}))
+    for locale, names in sorted((data.get("names") or {}).items()):
         emit("names", locale, _sorted(names))
     path.write_text("".join(parts), encoding="utf-8")
 
 
 def read_lua(text: str) -> dict:
-    """Reads a file written by write_lua back into the dataset (used by tests and the website)."""
+    """Reads a file written by write_lua back into the dataset (used by tests and the website): packed
+    sources come back unpacked, the addon-only index (ix, qi, pairs, packed) is left out."""
+    dataset = _read_lua_raw(text)
+    if dataset.get("packed"):
+        dataset["sources"] = {k: _unpack_source(s) for k, s in (dataset.get("sources") or {}).items()}
+    for k in ("ix", "qi", "pairs", "packed"):
+        dataset.pop(k, None)
+    return dataset
+
+
+def _read_lua_raw(text: str) -> dict:
     split = text.find(_PUT)
     p = _Parser(text if split < 0 else text[:split])
     p.take("name", "WorldCodex_CommunityData")
@@ -1252,6 +1416,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--z", type=float, default=5.0, help="outlier threshold in standard deviations")
     ap.add_argument("--min-n", type=int, default=1, help="drop sources with fewer attempts in total")
     ap.add_argument("--min-d", type=int, default=1, help="drop source/item pairs seen fewer times (size control)")
+    ap.add_argument("--lua-min-n", type=int, help="like --min-n, only for the addon's Lua file (default: --min-n)")
+    ap.add_argument("--lua-min-d", type=int, help="like --min-d, only for the addon's Lua file (default: --min-d)")
     ap.add_argument("--manifest", type=Path, help="also write a manifest (sha256, counts) for the release workflow")
     args = ap.parse_args(argv)
 
@@ -1264,13 +1430,19 @@ def main(argv: list[str] | None = None) -> int:
     dataset, rejected = merge(snaps, z_limit=args.z, min_n=args.min_n, min_d=args.min_d)
     for r in rejected:
         print("rejected:", r, file=sys.stderr)
-    write_lua(dataset, args.out)
+    lua_n = args.min_n if args.lua_min_n is None else args.lua_min_n
+    lua_d = args.min_d if args.lua_min_d is None else args.lua_min_d
+    write_lua(dataset, args.out, min_n=lua_n, min_d=lua_d)
     if args.json:
         write_json(dataset, args.json)
     if args.manifest:
-        write_manifest(dataset, args.out, args.manifest)
+        write_manifest(prune(dataset, lua_n, lua_d), args.out, args.manifest)
     pairs = sum(len(s["l"]) for s in dataset["sources"].values())
-    print(f"{len(dataset['contributors'])} contributors, {len(dataset['sources'])} sources, {pairs} source/item pairs -> {args.out}")
+    print(f"{len(dataset['contributors'])} contributors, {len(dataset['sources'])} sources, {pairs} source/item pairs -> {args.json or args.out}")
+    if (lua_n, lua_d) != (args.min_n, args.min_d):
+        shipped = prune(dataset, lua_n, lua_d)
+        lua_pairs = sum(len(s["l"]) for s in shipped["sources"].values())
+        print(f"addon file: {len(shipped['sources'])} sources, {lua_pairs} source/item pairs -> {args.out}")
     return 0
 
 

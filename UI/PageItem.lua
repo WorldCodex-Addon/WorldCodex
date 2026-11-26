@@ -127,6 +127,11 @@ function R.Tabs(id, layer)
                 or L["Nobody has looted this item yet."],
         }
     end
+    -- the item itself (stats, weapon damage, effects; Items.lua): its own tab, because with drops
+    -- the right page shows the selected source
+    if #ns.Report.ItemDetailRows(id) > 0 then
+        tabs[#tabs + 1] = { id = "details", label = L["Item"], custom = "details" }
+    end
     if ns.ItemTabs then
         for _, t in ipairs(ns.ItemTabs(id, layer)) do
             tabs[#tabs + 1] = t
@@ -138,8 +143,28 @@ function R.Tabs(id, layer)
     return tabs
 end
 
+-- Nothing selected: the item's own facts (stats, weapon damage, effects; Items.lua) on the right page.
+local function ShowItemFacts()
+    local cur = P.Current()
+    local id = cur and cur.type == "item" and cur.id
+    local rows = id and ns.Report.ItemDetailRows(id) or {}
+    if #rows == 0 or not ns.Details then return false end
+    local d = ns.ItemDetails(id)
+    local sub = {}
+    if d.slot then sub[#sub + 1] = d.slot end
+    if d.subclass and d.subclass ~= "" then sub[#sub + 1] = d.subclass end
+    ns.Details.Show({
+        title = ns.ItemName(id, true),
+        icon = d.texture,
+        subtitle = table.concat(sub, " · "),
+        sections = { { title = L["Item"], rows = rows } },
+    })
+    return true
+end
+
 function R.Select(r, tab)
     if not r then
+        if not (tab and tab.custom) and ShowItemFacts() then return end
         P.Analysis(nil, { empty = tab and tab.custom and " " or nil })
         return
     end
@@ -205,6 +230,17 @@ end
 function R.EmptyText() return L["Select a source to see the details."] end
 
 R.Custom = {}
+
+-- Item details on the left page (the right page keeps the selected source's analysis or the facts).
+function R.Custom.details(parent)
+    local fr = CreateFrame("Frame", nil, parent)
+    fr:SetAllPoints(parent)
+    fr.facts = ns.Details.Frame(fr, P.CONTENT_W)
+    function fr:Update(id)
+        ns.Details.Render(self.facts, { sections = { { title = L["Item"], rows = ns.Report.ItemDetailRows(id) } } })
+    end
+    return fr
+end
 
 -- Price history: daily medians with min-max whiskers over the last 60 days.
 function R.Custom.prices(parent)

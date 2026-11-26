@@ -20,6 +20,7 @@ Quests.lua
 Vendors.lua
 Npcs.lua
 Crafting.lua
+Items.lua
 AH\History.lua
 AH\Scanner.lua
 AH\Modern.lua

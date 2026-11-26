@@ -123,9 +123,13 @@ function K.Compute()
         for _ in pairs(c.contributors or {}) do
             contributors = contributors + 1
         end
-        for _, s in pairs(c.sources) do
-            for _ in pairs(s.l or {}) do
-                pairsCount = pairsCount + 1
+        if type(c.pairs) == "number" then
+            pairsCount = c.pairs -- packed file: counted by merge.py, no need to decode every record
+        else
+            for _, s in pairs(c.sources) do
+                for _ in pairs(s.l or {}) do
+                    pairsCount = pairsCount + 1
+                end
             end
         end
     end
