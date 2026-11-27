@@ -42,6 +42,32 @@ local function Reagents(r)
     return table.concat(parts, ", ")
 end
 
+-- Right page of a recipe row: the product, its profession and the reagents as a list (icon, linked
+-- name, count; click opens the reagent's page, shift-click links it).
+local function RecipeFacts(product, r, title)
+    local rows = {}
+    for id, n in pairs(r.r or {}) do
+        rows[#rows + 1] = {
+            entry = true,
+            itemId = id,
+            icon = ns.ItemIcon(id),
+            name = ns.ItemName(id, true),
+            sort = ns.ItemName(id),
+            value = string.format("%dx", n),
+        }
+    end
+    table.sort(rows, function(a, b) return a.sort < b.sort end)
+    local sub = ns.Crafting.ProfessionName(r.pf)
+    if (r.mx or 1) > 1 then sub = string.format("%s · %s %d-%d", sub, L["Made"], r.mn or 1, r.mx) end
+    rows[#rows + 1] = { note = L["Shift-click links the item."] }
+    return {
+        title = title,
+        icon = type(product) == "number" and ns.ItemIcon(product) or nil,
+        subtitle = sub,
+        sections = { { title = L["Reagents"], rows = rows } },
+    }
+end
+
 local function ProductName(product)
     if type(product) == "number" then return ns.ItemName(product, true) end
     local spell = tonumber(tostring(product):match("enchant:(%d+)"))
@@ -225,6 +251,7 @@ local function RecipeRow(product, r, role, itemId)
         pfName = ns.Crafting.ProfessionName(r.pf),
         reagents = Reagents(r),
         name = ProductName(product),
+        facts = function() return RecipeFacts(product, r, ProductName(product)) end,
         openType = openType,
         openId = sid or (openType and product) or nil,
         detail = string.format(
@@ -526,7 +553,10 @@ function ns.SourceTabs(key)
     return tabs
 end
 
-function X.Select(r) P.Analysis(nil, { empty = r.detail or "" }) end
+function X.Select(r)
+    if r.facts and ns.Details then return ns.Details.Show(r.facts()) end
+    P.Analysis(nil, { empty = r.detail or "" })
+end
 
 function X.Tooltip(tt, r)
     if r.openType == "item" and r.openId then

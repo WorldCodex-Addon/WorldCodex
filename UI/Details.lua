@@ -96,7 +96,12 @@ local function EntryButton(fr, y, height, width, row)
             if GameTooltip then GameTooltip:Hide() end
         end)
         b:SetScript("OnClick", function(self)
-            if self.row then OpenEntry(self.row) end
+            if not self.row then return end
+            if self.row.itemId and IsShiftKeyDown and IsShiftKeyDown() and ChatEdit_InsertLink then
+                ChatEdit_InsertLink(ns.ItemLink(self.row.itemId))
+                return
+            end
+            OpenEntry(self.row)
         end)
         fr.pools.button[fr.used.button] = b
     end
@@ -117,7 +122,7 @@ end
 
 -- Lays out facts = { title =, icon =, subtitle =, sections = { {title =, rows = {...}} } } in fr (from
 -- D.Frame); title and subtitle are optional. Rows: { label =, value = } | { entry = true, name =, value =,
--- sub =, tag =, weak =, key = | itemId = } | { note = }.
+-- sub =, tag =, weak =, icon =, key = | itemId = } | { note = }. Shift-click on an item entry links it.
 function D.Render(fr, facts)
     for _, pool in pairs(fr.pools) do
         for _, x in ipairs(pool) do
@@ -144,7 +149,8 @@ function D.Render(fr, facts)
             if row.entry then
                 local top = y
                 local role = row.weak and "muted" or "body"
-                local name = row.name .. (row.tag and ("  |cff888888" .. row.tag .. "|r") or "")
+                local icon = row.icon and ("|T" .. row.icon .. ":16:16:0:0|t ") or ""
+                local name = icon .. row.name .. (row.tag and ("  |cff888888" .. row.tag .. "|r") or "")
                 local nh = Place(fr, Text(fr, role, false), 0, y, width - RATE_W - 4, name)
                 local vh = Place(fr, Text(fr, role, false, "RIGHT"), width - RATE_W, y, RATE_W, row.value)
                 y = y + math.max(nh, vh)
