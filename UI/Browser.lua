@@ -684,7 +684,9 @@ ns.On("DATA_CHANGED", function(what)
         if Showing() then P.Refresh() end
     end)
 end)
-ns.On("SETTINGS_CHANGED", function() itemRows, full = {}, {} end)
+ns.On("SETTINGS_CHANGED", function()
+    itemRows, full = {}, {}
+end)
 -- Names of items the client had not cached arrive one by one: cached rows get the name in place (no
 -- rebuild), rows on screen are redrawn in batches.
 local function Rename(r, id)
