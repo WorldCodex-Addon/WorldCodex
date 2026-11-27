@@ -120,11 +120,13 @@ local SECTION = {
 
 -- ---------------------------------------------------------------- data
 
-local function Matches(name, q) return q == "" or tostring(name):lower():find(q, 1, true) ~= nil end
+-- Seconds without a keystroke before the filter box filters (shorter fired between keystrokes).
+local FILTER_DELAY = 0.6
 
 -- Row caches: building a row (ranking + price summary) is the expensive part, so rows are kept
--- until their item's data changes. Names are cached separately so a search only builds matches.
-local nameCache, itemRows, ahRows = {}, {}, {}
+-- until their item's data changes. full[tab] is the whole list (no filter) in its default order:
+-- typing in the filter box only scans it, it never builds or sorts rows (that froze the game).
+local nameCache, itemRows, ahRows, full = {}, {}, {}, {}
 
 local function LowerName(id)
     local n = nameCache[id]
@@ -138,8 +140,9 @@ end
 function B.InvalidateItem(itemId)
     if itemId then
         nameCache[itemId], itemRows[itemId], ahRows[itemId] = nil, nil, nil
+        full.items, full.ah = nil, nil
     else
-        nameCache, itemRows, ahRows = {}, {}, {}
+        nameCache, itemRows, ahRows, full = {}, {}, {}, {}
     end
 end
 
@@ -153,6 +156,13 @@ end
 
 -- With "bags only" ticked and no filter text, item lists show only what is in the bags.
 local function BagFilter(q) return q == "" and ns.db.settings.browserBagsOnly end
+
+-- Rows without a name ("item:<id>") match only digits of their id, not every "e" or "t" typed.
+local function RowMatches(r, q)
+    if q == "" then return true end
+    if r.unnamed then return q:find("^%d+$") ~= nil and tostring(r.id):find(q, 1, true) ~= nil end
+    return r.name:find(q, 1, true) ~= nil
+end
 
 local function ItemRow(id)
     local r = itemRows[id]
@@ -203,46 +213,43 @@ local function AhRow(id)
     return r
 end
 
+-- Builders of the whole lists (unfiltered); bags = set of item ids to limit the item lists to.
 local Build = {}
 
-function Build.items(q)
+function Build.items(bags)
     local out = {}
-    local ids = BagFilter(q) and ns.BagItems() or ns.Store.AllItemIds()
-    for id in pairs(ids) do
-        if q == "" or LowerName(id):find(q, 1, true) then out[#out + 1] = ItemRow(id) end
+    for id in pairs(bags or ns.Store.AllItemIds()) do
+        out[#out + 1] = ItemRow(id)
     end
     return out
 end
 
-function Build.sources(q)
+function Build.sources()
     local out = {}
     for key in pairs(ns.Store.AllSourceKeys()) do
         local name, kind = ns.Store.SourceMeta(key)
-        if Matches(name, q) then
-            local value, _, n = ns.Report.SourceValue(key)
-            local sum = ns.Store.SourceSummary(key)
-            out[#out + 1] = {
-                type = "source",
-                id = key,
-                name = tostring(name):lower(),
-                label = tostring(name),
-                kind = ns.KIND_LABEL[kind] or kind,
-                kindKey = kind,
-                n = n or 0,
-                perKill = sum.items,
-                coin = sum.coin,
-                value = value,
-            }
-        end
+        local value, _, n = ns.Report.SourceValue(key)
+        local sum = ns.Store.SourceSummary(key)
+        out[#out + 1] = {
+            type = "source",
+            id = key,
+            name = tostring(name):lower(),
+            label = tostring(name),
+            kind = ns.KIND_LABEL[kind] or kind,
+            kindKey = kind,
+            n = n or 0,
+            perKill = sum.items,
+            coin = sum.coin,
+            value = value,
+        }
     end
     return out
 end
 
-function Build.ah(q)
+function Build.ah(bags)
     local out = {}
-    local bags = BagFilter(q)
-    for id in pairs(bags and ns.BagItems() or ns.db.ah) do
-        if ns.db.ah[id] and (q == "" or LowerName(id):find(q, 1, true)) then
+    for id in pairs(bags or ns.db.ah) do
+        if ns.db.ah[id] then
             local r = AhRow(id)
             if r then out[#out + 1] = r end
         end
@@ -250,11 +257,11 @@ function Build.ah(q)
     return out
 end
 
-local function SortData(tab)
+local function SortRows(list, tab)
     local s = DEFAULT_SORT[tab]
     if not s then return end
     local key, desc = s.key, s.desc
-    table.sort(state.data, function(a, b)
+    table.sort(list, function(a, b)
         local va, vb = a[key], b[key]
         if va == vb then return a.name < b.name end
         if type(va) ~= type(vb) then
@@ -263,6 +270,26 @@ local function SortData(tab)
         if desc then return va > vb end
         return va < vb
     end)
+end
+
+-- The rows of a list for filter text q: the cached whole list, filtered in order.
+local function Rows(tab, q)
+    if tab ~= "sources" and BagFilter(q) then
+        local out = Build[tab](ns.BagItems())
+        SortRows(out, tab)
+        return out
+    end
+    local all = full[tab]
+    if not all then
+        all = Build[tab]()
+        SortRows(all, tab)
+        full[tab] = all
+    end
+    local out = {}
+    for _, r in ipairs(all) do
+        if RowMatches(r, q) then out[#out + 1] = r end
+    end
+    return out
 end
 
 local function Query(tab) return ns.Trim(state.query[tab] or ""):lower() end
@@ -347,7 +374,7 @@ local function EnsureWidgets()
     goalInput:SetNumeric(true)
     goalInput:SetText("20")
 
-    -- filter box of the lists, at the right end of the heading
+    -- filter box of the lists, at the right end of the heading; filters once typing pauses
     local function Apply()
         local tab = state.tab
         if not IsList(tab) then return end
@@ -364,7 +391,7 @@ local function EnsureWidgets()
         if not user then return end
         token = token + 1
         local mine = token
-        ns.After(0.3, function()
+        ns.After(FILTER_DELAY, function()
             if mine == token then Apply() end
         end)
     end)
@@ -390,8 +417,7 @@ function R.Prepare(id)
     local text = state.query[id] or ""
     if filterBox:GetText() ~= text then filterBox:SetText(text) end
     local q = Query(id)
-    state.data = ns.Profile("browser", Build[id], q)
-    SortData(id)
+    state.data = ns.Profile("browser", Rows, id, q)
     -- ask the client for missing names, a few at a time; rows update as they arrive
     for _, r in ipairs(state.data) do
         if r.unnamed then
@@ -631,8 +657,22 @@ ns.On("PRICES_UPDATED", function(itemId)
     else
         itemRows, ahRows = {}, {}
     end
+    full = {} -- order (price) and source values change
 end)
-ns.On("DATA_CHANGED", function() itemRows = {} end)
+-- A loot window changes the rates of that source's items only: those rows are rebuilt, the others kept
+-- (wiping every row per loot made the next keystroke in the filter box rebuild thousands of them).
+ns.On("LOOT", function(key)
+    if key == nil then return end
+    for id in pairs(ns.Store.SourceItems(key)) do
+        itemRows[id] = nil
+    end
+    full.items = nil
+end)
+ns.On("DATA_CHANGED", function(what)
+    full.sources = nil
+    if what == "loot" then return end -- rows: see LOOT
+    itemRows, full = {}, {}
+end)
 -- Names of dungeon mobs arrive a moment after they were recorded (Store.ResolveNames): lists are not
 -- live, so the one on screen is rebuilt once.
 local namesPending = false
@@ -644,31 +684,26 @@ ns.On("DATA_CHANGED", function(what)
         if Showing() then P.Refresh() end
     end)
 end)
-ns.On("SETTINGS_CHANGED", function() itemRows = {} end)
--- Names of items the client had not cached arrive one by one: rows on screen are updated in place
--- (in batches) instead of rebuilding the list.
-local arrived, redrawPending = {}, false
+ns.On("SETTINGS_CHANGED", function() itemRows, full = {}, {} end)
+-- Names of items the client had not cached arrive one by one: cached rows get the name in place (no
+-- rebuild), rows on screen are redrawn in batches.
+local function Rename(r, id)
+    if not r or not r.unnamed then return false end
+    r.label, r.name, r.unnamed = ns.ItemName(id, true), LowerName(id), not Known(id)
+    if r.icon == false then r.icon = nil end -- look again once the item is known
+    return true
+end
+local redrawPending = false
 local function RedrawNames()
     redrawPending = false
-    local ids = arrived
-    arrived = {}
-    if not Showing("items", "ah") then return end
-    local changed = false
-    for _, r in ipairs(state.data) do
-        if r.unnamed and ids[r.id] then
-            r.label, r.name, r.unnamed = ns.ItemName(r.id, true), LowerName(r.id), not Known(r.id)
-            if r.icon == false then r.icon = nil end -- look again once the item is known
-            changed = true
-        end
-    end
-    if changed then P.RenderRows() end
+    if Showing("items", "ah") then P.RenderRows() end
 end
 ns.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(itemId)
     if not itemId then return end
-    B.InvalidateItem(itemId)
-    if not Showing("items", "ah") then return end
-    arrived[itemId] = true
-    if not redrawPending then
+    nameCache[itemId] = nil
+    local renamed = Rename(itemRows[itemId], itemId)
+    renamed = Rename(ahRows[itemId] or nil, itemId) or renamed
+    if renamed and not redrawPending and Showing("items", "ah") then
         redrawPending = true
         ns.After(0.5, RedrawNames)
     end

@@ -390,14 +390,25 @@ end
 ns.RegisterEvent("GET_ITEM_INFO_RECEIVED", function(itemId) names[itemId] = nil end)
 
 -- Asks the client for names of items it has not cached yet (community data), a few at a time and
--- never in combat, so search can find them.
-local warming
+-- never in combat, so search can find them. The scan over every item runs at most once a minute (it is
+-- called on every list filter while unnamed rows show, and some ids never get a name).
+local warming, warmedAt
 function Lk.WarmNames()
     if warming or not ns.db then return end
+    local now = GetTime and GetTime() or 0
+    if warmedAt and now - warmedAt < 60 then return end
+    warmedAt = now
     local request = (C_Item and C_Item.RequestLoadItemDataByID) or nil
     local queue = {}
     for id in pairs(Store.AllItemIds()) do
-        if not names[id] and not ns.ItemInfo(id) then queue[#queue + 1] = id end
+        if not names[id] then
+            local name = ns.ItemInfo(id)
+            if name then
+                names[id] = name:lower() -- known: the next scan skips the client call
+            else
+                queue[#queue + 1] = id
+            end
+        end
     end
     if #queue == 0 then return end
     warming = { queue = queue, i = 1 }

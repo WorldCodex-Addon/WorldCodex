@@ -1063,7 +1063,7 @@ function P.Create()
         if not user then return end
         token = token + 1
         local mine = token
-        ns.After(0.25, function()
+        ns.After(0.5, function() -- once typing pauses
             if mine == token then RunSearch() end
         end)
     end)
