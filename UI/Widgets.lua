@@ -70,8 +70,12 @@ function W.Check(parent, label, get, set, font)
     local fs = cb:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
     fs:SetPoint("LEFT", cb, "RIGHT", 4, 0)
     fs:SetText(label)
-    cb:SetScript("OnShow", function(self) self:SetChecked(get() and true or false) end)
+    local function Sync(self) self:SetChecked(get() and true or false) end
+    cb:SetScript("OnShow", Sync)
     cb:SetScript("OnClick", function(self) set(self:GetChecked() and true or false) end)
+    -- OnShow does not fire for a box created on an already visible parent: set the state now too
+    -- (pcall: some getters read ns.db, which may not exist yet when a panel is built early)
+    pcall(Sync, cb)
     return cb
 end
 
