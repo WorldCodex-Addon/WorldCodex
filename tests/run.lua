@@ -2336,6 +2336,12 @@ test("profession recipes are read through C_TradeSkillUI with reagents and a rev
     ns.Dispatch("TRADE_SKILL_LIST_UPDATE") -- filters, crafting: the same list again
     Advance(ns, 1)
     eq(fake.schematics, reads, "an unchanged profession is not read again")
+    local all = ns.Store.AllItemIds()
+    ok(all[4238] and all[2996] and all[2320] and all[10940], "recipe products and reagents are items")
+    eq(all[9999], nil, "optional reagents are not")
+    ns.db.vendors[77] = { nm = "Vendor", i = { [159] = { p = 25 } } }
+    ok(ns.Store.AllItemIds()[159], "vendor items are items")
+    ok(ns.Search.AllItems()[4238], "advanced search sees the same items")
     ClearProfessionUI()
 end)
 

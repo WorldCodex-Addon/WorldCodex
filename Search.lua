@@ -198,31 +198,9 @@ local function SourcesDropping(q)
     return keys
 end
 
--- Every item WorldCodex knows: loot, recorded items and prices (Store.AllItemIds), plus what vendors sell
--- and what recipes make or use.
-function S.AllItems()
-    local ids = Store.AllItemIds()
-    for _, l in ipairs(ns.Vendors and ns.Vendors.Layers() or {}) do
-        for _, rec in pairs(l.t) do
-            if type(rec) == "table" and type(rec.i) == "table" then
-                for id in pairs(rec.i) do
-                    if type(id) == "number" then ids[id] = true end
-                end
-            end
-        end
-    end
-    for _, l in ipairs(ns.Crafting and ns.Crafting.Layers() or {}) do
-        for product, rec in pairs(l.t) do
-            if type(product) == "number" then ids[product] = true end
-            if type(rec) == "table" and type(rec.r) == "table" then
-                for id in pairs(rec.r) do
-                    if type(id) == "number" then ids[id] = true end
-                end
-            end
-        end
-    end
-    return ids
-end
+-- Every item WorldCodex knows: loot, recorded items, prices, what vendors sell and what recipes make or
+-- use (Store.AllItemIds).
+function S.AllItems() return Store.AllItemIds() end
 
 -- What is known about an item without asking the server: the client's cache, else the facts recorded
 -- in db.items, else GetItemInfoInstant (class, subclass, slot).

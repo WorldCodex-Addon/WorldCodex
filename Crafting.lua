@@ -144,6 +144,12 @@ local function Save(product, rec)
     rec.t, rec.rv = ns.time(), old and old.rv
     Db()[product] = rec
     if old and SameRecipe(old, rec) then return false end
+    if ns.Items then
+        if type(product) == "number" then ns.Items.Queue(product) end
+        for id in pairs(rec.r) do
+            ns.Items.Queue(id)
+        end
+    end
     Store.Mark(rec)
     return true
 end

@@ -1263,6 +1263,31 @@ function Store.AllItemIds()
     for id in pairs(DB.ah) do
         ids[id] = true
     end
+    Store.TradeItemIds(ids)
+    return ids
+end
+
+-- Adds what vendors sell and what recipes make or use (every layer) to the set ids; returns ids.
+function Store.TradeItemIds(ids, ownOnly)
+    ids = ids or {}
+    for _, name in ipairs({ "Vendors", "Crafting" }) do
+        local mod = ns[name]
+        for _, l in ipairs(mod and mod.Layers and mod.Layers() or {}) do
+            if not ownOnly or l.layer == "me" then
+                for key, rec in pairs(l.t) do
+                    if type(rec) == "table" then
+                        if name == "Crafting" and type(key) == "number" then ids[key] = true end
+                        local list = name == "Vendors" and rec.i or rec.r
+                        if type(list) == "table" then
+                            for id in pairs(list) do
+                                if type(id) == "number" then ids[id] = true end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
     return ids
 end
 

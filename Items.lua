@@ -445,6 +445,9 @@ ns.On("DB_READY", function(db)
         for id in pairs(db.items) do
             I.Queue(id)
         end
+        for id in pairs(ns.Store.TradeItemIds(nil, true)) do
+            I.Queue(id)
+        end
         QueueBags()
         QueueEquipped("player")
     end)
