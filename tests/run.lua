@@ -457,8 +457,15 @@ local function FakeAH(results, opts)
         -- opts.replicate: full scan rows { itemId, count, buyout }
         GetNumReplicateItems = function() return opts.replicate and #opts.replicate or 0 end,
         GetReplicateItemInfo = function(i)
+            -- r[4]: the row's item name (default "x", false = not in the item cache), r[5] icon, r[6] quality
             local r = opts.replicate[i + 1]
-            return "x", nil, r[2], 1, true, 0, nil, 0, 0, r[3], 0, false, 0, 0, nil, true, r[1], true
+            local name = r[4]
+            if name == nil then
+                name = "x"
+            elseif name == false then
+                name = nil
+            end
+            return name, r[5], r[2], r[6] or 1, true, 0, nil, 0, 0, r[3], 0, false, 0, 0, nil, true, r[1], true
         end,
     }
     local info = _G.C_AuctionHouse.GetCommoditySearchResultInfo
@@ -1229,6 +1236,7 @@ local function ItemApis(env, opts)
             return id, "", "", "", 0, it and it.classId
         end,
         RequestLoadItemDataByID = function(id) requested[id] = true end,
+        IsItemDataCachedByID = function(id) return env.items[id] ~= nil end,
     }
     _G.C_TooltipInfo = { GetItemByID = function(id) return opts.tooltips[id] end }
     _G.DAMAGE_TEMPLATE, _G.SPEED, _G.DURABILITY_TEMPLATE = "%s - %s Schaden", "Tempo", "Haltbarkeit %d / %d"
@@ -1363,6 +1371,109 @@ test("item details are read from chat links, inspected players, received items a
     end)
     NoItemApis()
     _G.GetInventoryItemLink = nil
+    if not ok then error(err, 0) end
+end)
+
+test("items the auction house shows are recorded, not only priced", function()
+    local env = Env()
+    local requested = ItemApis(env, {
+        stats = {},
+        slots = {},
+        unique = {},
+        spells = {},
+        instant = { [5000] = { classId = 7 }, [6000] = { classId = 7 } },
+        tooltips = {},
+    })
+    local fake = FakeAH({ [765] = { rows = Rows(3, 10), batches = { 3 } } }, {
+        replicate = {
+            { 100, 1, 10 },
+            { 5000, 2, 50, "Kupfererz", 123, 2 }, -- not cached: named by the auction house
+            { 5000, 4, 100, "Kupfererz", 123, 2 },
+            { 6000, 1, 30, false }, -- not cached, no name either
+        },
+    })
+    local ok, err = pcall(function()
+        local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+        OpenAH(ns, nil)
+        eq(fake.replicated, 1)
+        ns.Dispatch("REPLICATE_ITEM_LIST_UPDATE")
+        for _ = 1, 50 do
+            Advance(ns, 0.5)
+        end
+        eq(ns.db.ah[5000].last.q, 6, "priced")
+        local it = ns.db.items[5000]
+        ok(it, "an item that never dropped gets a record")
+        eq(it.n, "Kupfererz", "name from the auction row")
+        eq(it.ql, 2)
+        eq(it.ic, 123)
+        eq(it.cl, 7, "class from GetItemInfoInstant (no cache needed)")
+        eq(ns.db.items[100].n, "Linen Cloth", "cached items: the full facts")
+        eq(ns.db.items[100].v, 13)
+        eq(ns.db.items[6000], nil, "nothing known yet")
+        eq(requested[5000], nil, "no load requests for a whole full scan")
+        eq(requested[6000], nil)
+        -- the client loads the item later (e.g. the player looks at it)
+        env.items[6000] = { name = "Zinnerz", classId = 7 }
+        ns.Dispatch("GET_ITEM_INFO_RECEIVED", 6000, true)
+        eq(ns.db.items[6000].n, "Zinnerz", "completed once cached")
+        env.items[5000] = { name = "Kupfererz", classId = 7, ilvl = 10 }
+        ns.Dispatch("GET_ITEM_INFO_RECEIVED", 5000, true)
+        eq(ns.db.items[5000].il, 10, "facts from the auction row completed")
+        local snap = ns.Store.Snapshot({ items = true })
+        eq(snap.it[5000].n, "Kupfererz", "shared with the website")
+        eq(snap.it[6000].n, "Zinnerz")
+
+        -- browse results (categories, name searches): items without prices
+        C_AuctionHouse.GetBrowseResults = function()
+            return {
+                { itemKey = { itemID = 7000 }, minPrice = 10, totalQuantity = 5 },
+                { itemKey = { itemID = 82800, battlePetSpeciesID = 55 }, minPrice = 10, totalQuantity = 1 },
+            }
+        end
+        C_AuctionHouse.GetItemKeyInfo = function(key)
+            if key.itemID == 7000 then
+                return { itemID = 7000, itemName = "Zauberstoff", quality = 1, iconFileID = 55 }
+            end
+        end
+        ns.Dispatch("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+        eq(ns.db.items[7000].n, "Zauberstoff", "browsed item recorded")
+        eq(ns.db.items[7000].ic, 55)
+        eq(ns.db.ah[7000], nil, "no price from the lowest price alone")
+        eq(ns.db.items[82800], nil, "pet cages are skipped")
+        ns.Dispatch("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", { { itemKey = { itemID = 765 } } })
+        eq(ns.db.items[765].n, "Silverleaf", "added browse results")
+
+        -- the player's own item search
+        ns.AH.Stop()
+        fake.shown[765] = 1
+        ns.db.items[765] = nil
+        ns.Dispatch("COMMODITY_SEARCH_RESULTS_UPDATED", 765)
+        eq(ns.db.items[765].n, "Silverleaf", "searched item recorded")
+    end)
+    NoItemApis()
+    if not ok then error(err, 0) end
+end)
+
+test("item details: trade goods are passed over cheaply and remembered once they have a record", function()
+    local env = Env()
+    ItemApis(env, { stats = {}, slots = {}, unique = {}, spells = {}, instant = {}, tooltips = {} })
+    local ok, err = pcall(function()
+        for id = 8000, 8199 do
+            env.items[id] = { name = "Ware " .. id, classId = 7 }
+        end
+        local ns = Stub.Boot(ROOT, env, { filter = CORE_ONLY })
+        for id = 8000, 8199 do
+            ns.Store.NoteItem(id)
+            ns.Items.Queue(id)
+        end
+        Advance(ns, 1.1) -- a few steps
+        eq(ns.Items.Pending(), 0, "200 trade goods checked within a second")
+        eq(ns.db.items[8000].dv, ns.Items.VERSION, "remembered: not queued again")
+        ns.Items.Queue(8000)
+        eq(ns.Items.Pending(), 0)
+        eq(ns.db.items[8000].st, nil)
+    end)
+    NoItemApis()
     if not ok then error(err, 0) end
 end)
 

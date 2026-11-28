@@ -124,7 +124,7 @@ function M.FullScan()
         ns.Print(ns.L["full scan is not supported on this client"])
         return false
     end
-    state = { mode = "replicate", sent = GetTime(), map = {} }
+    state = { mode = "replicate", sent = GetTime(), map = {}, info = {} }
     ah.ReplicateItems()
     ns.Print(ns.L["AH full scan started - allowed once every 15 minutes"])
     return true
@@ -140,10 +140,20 @@ function M.Tick(now)
         local r = st.rows
         local clock = debugprofilestop
         local deadline = clock and clock() + READ_BUDGET_MS
-        local levels, last, i, stop = st.map, r.n - 1, r.i, r.i + REPLICATE_PER_FRAME
+        local levels, info, last, i, stop = st.map, st.info, r.n - 1, r.i, r.i + REPLICATE_PER_FRAME
         while i <= last and i < stop do
-            local _, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemId = ah.GetReplicateItemInfo(i)
+            local name, texture, count, quality, _, _, _, _, _, buyout, _, _, _, _, _, _, itemId =
+                ah.GetReplicateItemInfo(i)
             count, buyout = tonumber(count) or 0, tonumber(buyout) or 0
+            -- the item as the auction house names it (nil name: not in the client's item cache yet)
+            -- (false: facts complete already; a table only per item, never per auction)
+            local hint = itemId and info[itemId]
+            if itemId and hint == nil then
+                local it = ns.db.items[itemId]
+                info[itemId] = not (it and it.n and it.bd ~= nil) and { n = name, ql = quality, ic = texture }
+            elseif hint and name and not hint.n then
+                hint.n, hint.ql, hint.ic = name, quality, texture
+            end
             if itemId and count > 0 and buyout > 0 then
                 local lv = levels[itemId]
                 if not lv then
@@ -159,7 +169,7 @@ function M.Tick(now)
         r.i = i
         if r.i > last then
             state = nil
-            ns.AH.FullDone(st.map)
+            ns.AH.FullDone(st.map, st.info)
         end
         return
     end
@@ -175,6 +185,42 @@ ns.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", OnCommodityResults)
 ns.RegisterEvent("COMMODITY_SEARCH_RESULTS_ADDED", OnCommodityResults)
 ns.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", OnItemResults)
 ns.RegisterEvent("ITEM_SEARCH_RESULTS_ADDED", OnItemResults)
+-- Browse results (the AH window's category lists and name searches): no prices (only the lowest one per
+-- item), but every listed item is recorded.
+local function KeyHint(itemKey)
+    local get = API().GetItemKeyInfo
+    local ok, ki = false, nil
+    if get then
+        ok, ki = pcall(get, itemKey)
+    end
+    if not ok or type(ki) ~= "table" then return {} end
+    return { n = ki.itemName, ql = ki.quality, ic = ki.iconFileID }
+end
+
+local function OnBrowse(results)
+    if type(results) ~= "table" then
+        local get = API().GetBrowseResults
+        local ok
+        ok, results = pcall(get or error)
+        if not ok or type(results) ~= "table" then return end
+    end
+    for _, r in ipairs(results) do
+        local key = type(r) == "table" and r.itemKey
+        local id = type(key) == "table" and key.itemID
+        -- battle pets all share the pet cage item
+        if type(id) == "number" and not ((key.battlePetSpeciesID or 0) > 0) and not ns.AH.Seen(id) then
+            ns.AH.SeeItem(id, KeyHint(key))
+        end
+    end
+end
+M.OnBrowse = OnBrowse
+
+ns.RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", function() OnBrowse(nil) end)
+ns.RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", OnBrowse)
+-- an item the browse list showed before the client had it cached
+ns.RegisterEvent("ITEM_KEY_ITEM_INFO_RECEIVED", function(itemId)
+    if ns.AH.Seen(itemId) then ns.Store.NoteItem(itemId) end
+end)
 ns.RegisterEvent("REPLICATE_ITEM_LIST_UPDATE", function()
     if state and state.mode == "replicate" and not state.rows then state.dirty = GetTime() end
 end)

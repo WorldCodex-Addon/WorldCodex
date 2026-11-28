@@ -105,6 +105,61 @@ function Store.Item(itemId)
     return it
 end
 
+local function Instant(itemId)
+    local f = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    if not f then return nil end
+    local ok, _, _, _, equipLoc, icon, classId, subclassId = pcall(f, itemId)
+    if not ok then return nil end
+    return ns.Plain(equipLoc), ns.Plain(icon), ns.Plain(classId), ns.Plain(subclassId)
+end
+
+-- An item the auction house showed (full scan, browse results, item searches): its facts are recorded
+-- for the item pages, the export and the website, also for items that never dropped for the player.
+-- hint = { n, ql, ic } as the auction house names the item, or nil. With a hint, an item the client has
+-- not cached gets no load request (a full scan lists thousands): it is recorded from the hint (plus what
+-- GetItemInfoInstant knows without the cache) when the hint has a name, and completed whenever the
+-- client loads it (GET_ITEM_INFO_RECEIVED). Returns true when the record changed.
+function Store.NoteItem(itemId, hint)
+    itemId = ns.Plain(itemId)
+    if not DB or type(itemId) ~= "number" or itemId <= 0 then return false end
+    local it = DB.items[itemId]
+    -- complete facts (bd comes only from GetItemInfo): nothing to add
+    if it and it.n and it.bd ~= nil then return false end
+    local name = type(hint) == "table" and ns.Plain(hint.n) or nil
+    if type(name) ~= "string" or name == "" then name = nil end
+    if hint and not name then
+        local cached = C_Item and C_Item.IsItemDataCachedByID
+        local ok, yes = false, false
+        if cached then
+            ok, yes = pcall(cached, itemId)
+        end
+        if not (ok and yes) then
+            pendingInfo[itemId] = true
+            return false
+        end
+    end
+    if Store.RefreshItemInfo(itemId) then return true end
+    if not name then return false end
+    it = EnsureItem(itemId)
+    local changed = false
+    local function Set(f, v)
+        if v ~= nil and it[f] == nil then
+            it[f] = v
+            changed = true
+        end
+    end
+    Set("n", name:sub(1, 120))
+    local ql, ic = ns.Plain(hint.ql), ns.Plain(hint.ic)
+    Set("ql", type(ql) == "number" and ql >= 0 and ql <= 10 and ql or nil)
+    local equipLoc, icon, classId, subclassId = Instant(itemId)
+    Set("ic", (type(ic) == "number" and ic > 0 and ic) or (type(icon) == "number" and icon > 0 and icon) or nil)
+    Set("cl", type(classId) == "number" and classId or nil)
+    Set("sc", type(subclassId) == "number" and subclassId or nil)
+    Set("eq", type(equipLoc) == "string" and equipLoc ~= "" and equipLoc or nil)
+    if changed then Store.Mark(it) end
+    return changed
+end
+
 -- ---------------------------------------------------------------- migrations
 
 local function MigrateV1(db)

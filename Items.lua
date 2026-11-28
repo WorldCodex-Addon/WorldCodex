@@ -10,7 +10,8 @@ local _, ns = ...
 -- details need the client's item cache (GET_ITEM_INFO_RECEIVED) and a tooltip build per item.
 --
 -- Only weapons, armour and items with a use spell get a record in db.items (an auction house full scan
--- lists thousands of trade goods that have nothing to add). Fields, all optional (docs/export.md):
+-- lists thousands of trade goods that have nothing to add; their names, levels and icons are recorded by
+-- Store.NoteItem). Fields, all optional (docs/export.md):
 --   iv inventory type (Enum.InventoryType), st stats { [ITEM_MOD_..._SHORT / RESISTANCEn_NAME / ...] =
 --   value } as C_Item.GetItemStats names them (the keys are global string names, the same in every
 --   language), wd weapon damage { min, max, speed in ms }, du durability, set item set id, un unique
@@ -28,6 +29,7 @@ I.TRIGGERS = TRIGGERS
 local MAX_QUEUE = 20000
 local MAX_WAITS = 3 -- cache requests per item and session
 local STEP_ITEMS, STEP_MS = 8, 3
+local STEP_CHECKS = 64 -- items per step that turn out to have nothing to read (cheap)
 local MAX_EFFECTS, MAX_TEXT = 8, 250
 
 local queue, head, queued = {}, 1, {}
@@ -236,9 +238,14 @@ function I.Read(id)
         end
         return "wait"
     end
+    local known = ns.db.items[id]
+    -- facts recorded from an auction house row before the client had the item cached
+    if known and known.bd == nil then ns.Store.RefreshItemInfo(id) end
     if not GEAR[d.classId] and not UseSpell(id) then
         skip[id] = true
         I.stats.skipped = I.stats.skipped + 1
+        -- remembered for items with a record (auction house items, drops): not queued again
+        if known then known.dv = I.VERSION end
         return "skip"
     end
     local it = ns.Store.Item(id)
@@ -343,15 +350,17 @@ function I.Step()
     if head > #queue or not ns.db or ns.InCombat() or ns.Restricted("Combat") then return end
     local clock = debugprofilestop
     local start = clock and clock()
-    for _ = 1, STEP_ITEMS do
+    local reads = 0
+    for _ = 1, STEP_CHECKS do
         local id = queue[head]
         if not id then break end
         queue[head] = nil
         head = head + 1
         queued[id] = nil
         local it = ns.db.items[id]
-        if not (it and it.dv == I.VERSION) and not skip[id] then I.Read(id) end
-        if start and clock() - start > STEP_MS then break end
+        local result = not (it and it.dv == I.VERSION) and not skip[id] and I.Read(id)
+        if result == "done" or result == "wait" then reads = reads + 1 end
+        if reads >= STEP_ITEMS or (start and clock() - start > STEP_MS) then break end
     end
     if head > #queue then
         queue, head = {}, 1
@@ -435,9 +444,10 @@ ns.On("DB_READY", function(db)
     ns.On("RECEIVED", function(id) I.Queue(id) end)
     ns.On("PRICES_UPDATED", function(id)
         if id then return I.Queue(id) end
-        -- a full scan: only gear (GetItemInfoInstant needs no item cache)
+        -- a full scan: every listed item (trade goods without a use spell are passed over cheaply, and
+        -- remembered once they have a record)
         for itemId in pairs(db.ah) do
-            if GEAR[ClassOf(itemId)] then I.Queue(itemId) end
+            I.Queue(itemId)
         end
     end)
     -- what was recorded before (drops, vendors, recipes) and what the player carries, once settled

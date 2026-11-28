@@ -17,6 +17,7 @@ local PASSIVE_COOLDOWN = 60
 
 local commitQueue
 local passiveAt = {}
+local seen = {} -- items recorded this session (A.SeeItem)
 
 A.stats = { searches = 0, done = 0, partial = 0, timeouts = 0, errors = 0, passive = 0, fails = 0, lastError = nil }
 
@@ -68,7 +69,19 @@ function A.Stop()
     if A.adapter and A.adapter.Reset then A.adapter.Reset() end
 end
 
+-- Every item the auction house shows is recorded as an item (Store.NoteItem) and queued for its
+-- details (Items.lua), not only priced: the auction house lists far more items than the player loots.
+function A.Seen(itemId) return seen[itemId] == true end
+
+function A.SeeItem(itemId, hint)
+    if type(itemId) ~= "number" then return end
+    seen[itemId] = true
+    ns.Store.NoteItem(itemId, hint)
+    if ns.Items then ns.Items.Queue(itemId) end
+end
+
 function A.ItemDone(itemId, listings)
+    A.SeeItem(itemId)
     ns.Prices.Commit(itemId, listings or {})
     A.scanned = A.scanned + 1
     A.stats.done = A.stats.done + 1
@@ -86,14 +99,16 @@ end
 function A.Passive(itemId, listings)
     if not A.PassiveWanted(itemId) then return end
     passiveAt[itemId] = GetTime()
+    A.SeeItem(itemId)
     ns.Prices.Commit(itemId, listings or {})
     A.stats.passive = A.stats.passive + 1
     ns.Fire("PRICES_UPDATED", itemId)
 end
 
--- map: itemId -> price levels. Committed a few milliseconds per frame to avoid hitches.
-function A.FullDone(map)
-    commitQueue = { ids = {}, map = map, i = 1 }
+-- map: itemId -> price levels, info: itemId -> { n, ql, ic } (false: already known). Committed a few
+-- milliseconds per frame to avoid hitches.
+function A.FullDone(map, info)
+    commitQueue = { ids = {}, map = map, info = info or {}, i = 1 }
     for id in pairs(map) do
         commitQueue.ids[#commitQueue.ids + 1] = id
     end
@@ -240,7 +255,12 @@ ns.OnUpdate(function(_, now)
             local id = q.ids[q.i]
             q.i = q.i + 1
             ns.Prices.Commit(id, nil, nil, nil, q.map[id])
-            q.map[id] = nil -- freed as we go
+            local hint = q.info[id]
+            if hint ~= false then
+                seen[id] = true
+                ns.Store.NoteItem(id, hint or {})
+            end
+            q.map[id], q.info[id] = nil, nil -- freed as we go
             A.scanned = A.scanned + 1
             done = done + 1
             if done >= COMMIT_PER_FRAME or (deadline and clock() >= deadline) then break end
