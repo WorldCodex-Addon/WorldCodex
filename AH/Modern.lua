@@ -208,7 +208,7 @@ local function OnBrowse(results)
         local key = type(r) == "table" and r.itemKey
         local id = type(key) == "table" and key.itemID
         -- battle pets all share the pet cage item
-        if type(id) == "number" and not ((key.battlePetSpeciesID or 0) > 0) and not ns.AH.Seen(id) then
+        if type(id) == "number" and (key.battlePetSpeciesID or 0) <= 0 and not ns.AH.Seen(id) then
             ns.AH.SeeItem(id, KeyHint(key))
         end
     end
